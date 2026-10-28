@@ -1,0 +1,91 @@
+// Thin fetch wrapper using the exact backend shapes:
+//   POST /api/entry { text } -> draft Entry (confirmed = 0)
+//   POST /api/transactions/confirm { id } -> confirmed Entry
+//   GET /api/ledger -> Entry[] (confirmed only, newest first)
+import type { Entry } from './types'
+
+export interface EditedValues {
+  item: string
+  quantity: number
+  amount_kes: number
+}
+
+async function detailMessage(res: Response): Promise<string> {
+  try {
+    const data: unknown = await res.json()
+    if (
+      typeof data === 'object' &&
+      data !== null &&
+      'detail' in data &&
+      typeof (data as { detail: unknown }).detail === 'string'
+    ) {
+      return (data as { detail: string }).detail
+    }
+  } catch {
+    // Fall through to the generic message below.
+  }
+  return `Something went wrong (server said ${res.status}). Please try again.`
+}
+
+export async function postEntry(text: string): Promise<Entry> {
+  let res: Response
+  try {
+    res = await fetch('/api/entry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend first, then try again.',
+    )
+  }
+  if (res.status === 502) {
+    throw new Error(
+      "Spark couldn't understand that entry. Try something like “sold 5kg sugar for 800 bob”.",
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  return (await res.json()) as Entry
+}
+
+export async function confirmEntry(
+  id: number,
+  edited: EditedValues,
+): Promise<Entry> {
+  // The backend's ConfirmIn shape only reads `id`; the edited values ride
+  // along so a future backend update can persist them without a frontend change.
+  let res: Response
+  try {
+    res = await fetch('/api/transactions/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...edited }),
+    })
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Your entry is saved as a draft — try confirming again.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  return (await res.json()) as Entry
+}
+
+export async function fetchLedger(): Promise<Entry[]> {
+  let res: Response
+  try {
+    res = await fetch('/api/ledger')
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend, then tap Retry.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  return (await res.json()) as Entry[]
+}

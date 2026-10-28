@@ -1,0 +1,253 @@
+/* Duka-Yangu Day 3A: mobile-first, plain CSS. Base width 390px. */
+
+:root {
+  --green: #1b6b3a;
+  --green-dark: #14522d;
+  --ink: #1c2420;
+  --muted: #5c665f;
+  --line: #dce3dd;
+  --bg: #eef2ee;
+  --card: #ffffff;
+  --error-bg: #fdf0ef;
+  --error-ink: #a02a20;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 17px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.app {
+  max-width: 430px;
+  margin: 0 auto;
+  padding: 16px 16px 40px;
+}
+
+.app-header h1 {
+  margin: 8px 0 0;
+  font-size: 26px;
+}
+
+.tagline {
+  margin: 2px 0 16px;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  margin: 0 0 8px;
+  font-size: 19px;
+}
+
+.field-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.entry-box,
+.text-input {
+  width: 100%;
+  font-size: 17px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: #fff;
+}
+
+.entry-box {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.row .field {
+  flex: 1;
+}
+
+.btn {
+  min-height: 52px;
+  padding: 12px 18px;
+  font-size: 17px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--green);
+  color: #fff;
+  flex: 1;
+}
+
+.btn.primary:not(:disabled):active {
+  background: var(--green-dark);
+}
+
+.btn.secondary {
+  background: #fff;
+  border-color: var(--green);
+  color: var(--green);
+  flex: 1;
+}
+
+.btn.mic {
+  background: #f0f3f0;
+  color: var(--muted);
+  border-color: var(--line);
+  flex: 1;
+}
+
+.btn.linklike {
+  background: none;
+  border: none;
+  color: var(--muted);
+  min-height: 44px;
+  margin-top: 4px;
+  text-decoration: underline;
+}
+
+.message {
+  margin: 10px 0 0;
+}
+
+.message.error {
+  background: var(--error-bg);
+  color: var(--error-ink);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.readback {
+  font-size: 18px;
+  background: #f4f8f4;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.edit-form {
+  margin-top: 8px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 10px 0 0;
+}
+
+.field-error {
+  color: var(--error-ink);
+  font-size: 14px;
+  margin: 6px 0 0;
+}
+
+.totals {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.total {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.total-label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.ledger-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ledger-row {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+.ledger-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ledger-item {
+  font-weight: 600;
+}
+
+.ledger-sub {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 4px;
+}
+
+.ledger-when {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.badge {
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: #e8efe8;
+  color: #33463a;
+  white-space: nowrap;
+}
+
+.badge-sale {
+  background: #e2f1e5;
+  color: var(--green-dark);
+}
+
+.badge-expense,
+.badge-purchase {
+  background: #fbe9e4;
+  color: #8f3226;
+}
+
+.badge-credit_given,
+.badge-credit_received {
+  background: #fdf3d7;
+  color: #6e5510;
+}

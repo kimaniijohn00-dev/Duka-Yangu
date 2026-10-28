@@ -1,4 +1,6 @@
 """Duka-Yangu FastAPI backend."""
+import json
+import math
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -25,6 +27,9 @@ class EntryIn(BaseModel):
 
 class ConfirmIn(BaseModel):
     id: int
+    item: str | None = None
+    quantity: float | None = None
+    amount_kes: int | None = None
 
 
 def _entry_from_row(row) -> dict:
@@ -99,7 +104,12 @@ def create_entry(payload: EntryIn):
 
 @app.post("/api/transactions/confirm")
 def confirm_transaction(payload: ConfirmIn):
-    """Mark a draft entry confirmed. 404 when missing, 409 when already confirmed."""
+    """Mark a draft entry confirmed, applying any edited fields first.
+
+    404 when missing, 409 when already confirmed, 422 when an edited
+    field is invalid. With only {id} it behaves exactly as before.
+    """
+    edits = _validate_confirm_edits(payload)
     now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
         row = conn.execute(
@@ -109,18 +119,68 @@ def confirm_transaction(payload: ConfirmIn):
             raise HTTPException(status_code=404, detail="entry not found")
         if row["confirmed"]:
             raise HTTPException(status_code=409, detail="entry already confirmed")
+        changed = {
+            field: value
+            for field, value in edits.items()
+            if value != row[field]
+        }
+        set_clause = ", ".join([f"{field} = ?" for field in edits] + ["confirmed = 1"])
         conn.execute(
-            "UPDATE transactions SET confirmed = 1 WHERE id = ?", (payload.id,)
+            f"UPDATE transactions SET {set_clause} WHERE id = ?",
+            (*edits.values(), payload.id),
         )
         conn.execute(
             "INSERT INTO audit_log (action, entity, entity_id, detail, created_at)"
             " VALUES ('confirm', 'transaction', ?, ?, ?)",
             (payload.id, row["raw_text"], now),
         )
+        if changed:
+            detail = json.dumps(
+                {
+                    "original": {field: row[field] for field in changed},
+                    "edited": changed,
+                }
+            )
+            conn.execute(
+                "INSERT INTO audit_log (action, entity, entity_id, detail, created_at)"
+                " VALUES ('edit', 'transaction', ?, ?, ?)",
+                (payload.id, detail, now),
+            )
         updated = conn.execute(
             "SELECT * FROM transactions WHERE id = ?", (payload.id,)
         ).fetchone()
     return _entry_from_row(updated)
+
+
+def _validate_confirm_edits(payload: ConfirmIn) -> dict:
+    """Collect provided edit fields, raising 422 with a clear message if invalid."""
+    edits: dict = {}
+    if payload.item is not None:
+        cleaned = payload.item.strip()
+        if not cleaned:
+            raise HTTPException(
+                status_code=422, detail="item must be a non-empty string"
+            )
+        edits["item"] = cleaned
+    if payload.quantity is not None:
+        quantity = payload.quantity
+        if (
+            isinstance(quantity, bool)
+            or not isinstance(quantity, (int, float))
+            or not math.isfinite(quantity)
+            or quantity <= 0
+        ):
+            raise HTTPException(
+                status_code=422, detail="quantity must be a positive number"
+            )
+        edits["quantity"] = quantity
+    if payload.amount_kes is not None:
+        if isinstance(payload.amount_kes, bool) or payload.amount_kes < 1:
+            raise HTTPException(
+                status_code=422, detail="amount_kes must be a positive integer"
+            )
+        edits["amount_kes"] = payload.amount_kes
+    return edits
 
 
 @app.get("/api/ledger")

@@ -137,3 +137,83 @@ def test_confirm_missing_id_returns_404(monkeypatch, isolated_db):
         appmod.confirm_transaction(appmod.ConfirmIn(id=9999))
 
     assert exc_info.value.status_code == 404
+
+
+def test_confirm_without_edits_keeps_values(monkeypatch, isolated_db):
+    draft = make_draft(monkeypatch)
+
+    out = appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"]))
+
+    assert (out["item"], out["quantity"], out["amount_kes"]) == ("sugar", 5, 800)
+    with db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT item, quantity, amount_kes, confirmed FROM transactions"
+            " WHERE id = ?",
+            (draft["id"],),
+        ).fetchone()
+        edit_rows = conn.execute(
+            "SELECT id FROM audit_log WHERE action = 'edit' AND entity_id = ?",
+            (draft["id"],),
+        ).fetchall()
+    assert tuple(row) == ("sugar", 5, 800, 1)
+    assert edit_rows == []
+
+
+def test_confirm_with_edits_updates_ledger(monkeypatch, isolated_db):
+    draft = make_draft(monkeypatch)
+
+    out = appmod.confirm_transaction(
+        appmod.ConfirmIn(id=draft["id"], item="tea", quantity=2, amount_kes=150)
+    )
+
+    assert (out["item"], out["quantity"], out["amount_kes"]) == ("tea", 2, 150)
+    ledger = appmod.read_ledger()
+    assert [(entry["item"], entry["quantity"], entry["amount_kes"]) for entry in ledger] == [
+        ("tea", 2, 150)
+    ]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"item": ""},
+        {"item": "   "},
+        {"quantity": 0},
+        {"quantity": -3},
+        {"amount_kes": 0},
+        {"amount_kes": -50},
+    ],
+)
+def test_confirm_rejects_invalid_edits(monkeypatch, isolated_db, kwargs):
+    draft = make_draft(monkeypatch)
+
+    with pytest.raises(HTTPException) as exc_info:
+        appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"], **kwargs))
+
+    assert exc_info.value.status_code == 422
+    with db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT item, quantity, amount_kes, confirmed FROM transactions"
+            " WHERE id = ?",
+            (draft["id"],),
+        ).fetchone()
+    assert tuple(row) == ("sugar", 5, 800, 0)
+
+
+def test_confirm_with_edits_writes_audit_entry(monkeypatch, isolated_db):
+    draft = make_draft(monkeypatch)
+
+    appmod.confirm_transaction(
+        appmod.ConfirmIn(id=draft["id"], item="tea", quantity=2, amount_kes=150)
+    )
+
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT action, detail FROM audit_log WHERE entity_id = ? ORDER BY id",
+            (draft["id"],),
+        ).fetchall()
+    by_action = {row[0]: row[1] for row in rows}
+    assert "confirm" in by_action
+    detail = json.loads(by_action["edit"])
+    assert detail["original"] == {"item": "sugar", "quantity": 5, "amount_kes": 800}
+    assert detail["edited"] == {"item": "tea", "quantity": 2, "amount_kes": 150}
