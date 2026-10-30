@@ -47,6 +47,11 @@ export interface WeeklyBar {
   expenses_kes: number
 }
 
+export interface Explanation {
+  text: string
+  source: 'spark' | 'template'
+}
+
 export interface Entry {
   id: number
   shop_id: number | null

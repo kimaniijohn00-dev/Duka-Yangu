@@ -59,7 +59,7 @@ TIPS = {
         "Lift your net margin: restock staples at wholesale and watch daily costs."
     ),
     "Repayment behaviour": (
-        "Follow up small credit quickly so advances are repaid within 3 weeks."
+        "Follow up small credit quickly so advances are repaid within three weeks."
     ),
     "Trend": "Grow this month over last month: push a little extra each week.",
 }

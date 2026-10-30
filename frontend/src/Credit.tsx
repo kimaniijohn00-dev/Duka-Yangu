@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { fetchCreditSummary, fetchWeekly } from './api'
+import { fetchCreditSummary, fetchExplanation, fetchWeekly } from './api'
 import { formatKES } from './format'
-import type { CreditSummary, WeeklyBar } from './types'
+import type { CreditSummary, Explanation, WeeklyBar } from './types'
 
 const BAND_COLORS: Record<string, string> = {
   Building: '#b23c17',
@@ -127,6 +127,9 @@ export default function Credit(): JSX.Element {
   const [weeks, setWeeks] = useState<WeeklyBar[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [explanation, setExplanation] = useState<Explanation | null>(null)
+  const [explLoading, setExplLoading] = useState(true)
+  const [explError, setExplError] = useState<string | null>(null)
 
   async function load(): Promise<void> {
     setLoading(true)
@@ -142,8 +145,23 @@ export default function Credit(): JSX.Element {
     }
   }
 
+  async function loadExplanation(): Promise<void> {
+    setExplLoading(true)
+    setExplError(null)
+    try {
+      setExplanation(await fetchExplanation())
+    } catch (err) {
+      setExplError(
+        err instanceof Error ? err.message : 'Could not load the explanation.',
+      )
+    } finally {
+      setExplLoading(false)
+    }
+  }
+
   useEffect(() => {
     void load()
+    void loadExplanation()
   }, [])
 
   return (
@@ -219,6 +237,35 @@ export default function Credit(): JSX.Element {
               </p>
               {summary.loan_reasoning && (
                 <p className="hint">{summary.loan_reasoning}</p>
+              )}
+            </section>
+
+            <section className="card" aria-label="In plain English">
+              <h2>In plain English</h2>
+              {explLoading && <p className="message">Asking Spark to explain…</p>}
+              {!explLoading && explError && (
+                <div>
+                  <p className="message error" role="alert">
+                    {explError}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => void loadExplanation()}
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+              {!explLoading && !explError && explanation && (
+                <div>
+                  <p>{explanation.text}</p>
+                  <p className="hint">
+                    {explanation.source === 'spark'
+                      ? 'Written by AI from the numbers above.'
+                      : 'Standard summary.'}
+                  </p>
+                </div>
               )}
             </section>
 

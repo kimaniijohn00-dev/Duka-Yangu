@@ -3,7 +3,7 @@
 //   POST /api/transactions/confirm { id } -> confirmed Entry
 //   GET /api/ledger -> Entry[] (confirmed only, newest first)
 //   POST /api/transcribe (multipart audio) -> { text }
-import type { CreditSummary, Entry, WeeklyBar } from './types'
+import type { CreditSummary, Entry, Explanation, WeeklyBar } from './types'
 
 export interface EditedValues {
   item: string
@@ -151,6 +151,26 @@ export async function fetchWeekly(): Promise<WeeklyBar[]> {
   }
   const data = (await res.json()) as { weeks: WeeklyBar[] }
   return data.weeks
+}
+
+export async function fetchExplanation(): Promise<Explanation> {
+  let res: Response
+  try {
+    res = await fetch('/api/credit/explain')
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend, then tap Retry.',
+    )
+  }
+  if (res.status === 404) {
+    throw new Error(
+      'No demo data yet. Seed the demo shop first, then open this tab.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  return (await res.json()) as Explanation
 }
 
 export async function fetchLedger(): Promise<Entry[]> {

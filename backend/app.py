@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from db import get_connection, init_db
 from services.credit import DEMO_SHOP_NAME, assess_shop, weekly_series
+from services.explain import explain_credit
 from services.spark import parse_entry
 
 
@@ -288,6 +289,32 @@ def dashboard_weekly(shop_id: int | None = None, as_of: str | None = None):
         "as_of": day.isoformat(),
         "weeks": weekly_series([dict(item) for item in ledger], day),
     }
+
+
+@app.get("/api/credit/explain")
+def credit_explain(shop_id: int | None = None, as_of: str | None = None):
+    """Plain-English credit explanation. Written by Spark, checked in Python.
+
+    Below a scored summary this never calls Spark: a fixed friendly
+    message is returned instead. Spark's reply is number-checked and any
+    failure falls back to a deterministic template; see services/explain.
+    """
+    from datetime import date
+
+    day = date.today()
+    if as_of is not None:
+        try:
+            day = date.fromisoformat(as_of)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
+    with get_connection() as conn:
+        row = _resolve_shop_row(conn, shop_id)
+        ledger = conn.execute(
+            "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
+            (row["id"],),
+        ).fetchall()
+    result = assess_shop([dict(item) for item in ledger], day)
+    return explain_credit(result)
 
 
 @app.get("/api/ledger")
