@@ -2,6 +2,7 @@
 //   POST /api/entry { text } -> draft Entry (confirmed = 0)
 //   POST /api/transactions/confirm { id } -> confirmed Entry
 //   GET /api/ledger -> Entry[] (confirmed only, newest first)
+//   POST /api/transcribe (multipart audio) -> { text }
 import type { Entry } from './types'
 
 export interface EditedValues {
@@ -73,6 +74,42 @@ export async function confirmEntry(
     throw new Error(await detailMessage(res))
   }
   return (await res.json()) as Entry
+}
+
+/** Send a WAV voice clip; resolve with the transcript to review. Never auto-saves. */
+export async function postTranscription(audio: Blob): Promise<string> {
+  const form = new FormData()
+  form.append('audio', audio, 'recording.wav')
+  let res: Response
+  try {
+    res = await fetch('/api/transcribe', { method: 'POST', body: form })
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend first, then try again.',
+    )
+  }
+  if (res.status === 413) {
+    throw new Error(
+      'That recording is too long. Keep it under 60 seconds and try again.',
+    )
+  }
+  if (res.status === 502) {
+    throw new Error(
+      "Could not turn that into words. Speak clearly and try again.",
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  const data: unknown = await res.json()
+  const text =
+    typeof data === 'object' && data !== null && 'text' in data
+      ? (data as { text: unknown }).text
+      : null
+  if (typeof text !== 'string' || !text.trim()) {
+    throw new Error('Heard nothing usable — hold the mic closer and try again.')
+  }
+  return text
 }
 
 export async function fetchLedger(): Promise<Entry[]> {

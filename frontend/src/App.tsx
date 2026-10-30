@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-import { confirmEntry, fetchLedger, postEntry } from './api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { confirmEntry, fetchLedger, postEntry, postTranscription } from './api'
 import type { Entry, EntryType } from './types'
+import { VOICE_MAX_SECONDS, VoiceRecorder } from './voice'
 import './styles.css'
 
 const TYPE_LABELS: Record<EntryType, string> = {
@@ -59,6 +60,13 @@ function isToday(iso: string): boolean {
   )
 }
 
+function formatVoiceTime(totalSeconds: number): string {
+  const capped = Math.min(totalSeconds, VOICE_MAX_SECONDS)
+  const minutes = Math.floor(capped / 60)
+  const seconds = capped % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
 function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString('en-KE', {
     day: 'numeric',
@@ -96,6 +104,79 @@ export default function App(): JSX.Element {
   const [text, setText] = useState('')
   const [entryLoading, setEntryLoading] = useState(false)
   const [entryError, setEntryError] = useState<string | null>(null)
+  const entryBoxRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // Voice entry: idle -> recording -> working (transcribing) -> idle.
+  // The transcript lands in the textarea for review; nothing auto-saves.
+  const [voice, setVoice] = useState<'idle' | 'recording' | 'working'>('idle')
+  const [voiceSecs, setVoiceSecs] = useState(0)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const recorderRef = useRef<VoiceRecorder | null>(null)
+  const timerRef = useRef<number | null>(null)
+
+  function stopVoiceTimer(): void {
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  // Release the mic if the screen unmounts mid-recording.
+  useEffect(() => {
+    return () => {
+      recorderRef.current?.cancel()
+      recorderRef.current = null
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current)
+      }
+    }
+  }, [])
+
+  async function stopVoice(): Promise<void> {
+    const recorder = recorderRef.current
+    recorderRef.current = null
+    stopVoiceTimer()
+    if (!recorder) {
+      setVoice('idle')
+      return
+    }
+    setVoice('working')
+    setVoiceError(null)
+    try {
+      const clip = await recorder.stop()
+      setText(await postTranscription(clip.blob))
+      entryBoxRef.current?.focus()
+    } catch (err) {
+      setVoiceError(err instanceof Error ? err.message : 'Voice input failed. Try again.')
+    } finally {
+      setVoice('idle')
+      setVoiceSecs(0)
+    }
+  }
+
+  async function handleMic(): Promise<void> {
+    if (voice === 'recording') {
+      await stopVoice()
+      return
+    }
+    if (voice !== 'idle') return
+    const recorder = new VoiceRecorder(VOICE_MAX_SECONDS)
+    recorderRef.current = recorder
+    setVoiceError(null)
+    try {
+      await recorder.start()
+    } catch (err) {
+      recorderRef.current = null
+      setVoiceError(err instanceof Error ? err.message : 'Could not start the microphone.')
+      return
+    }
+    const startedAt = Date.now()
+    setVoiceSecs(0)
+    setVoice('recording')
+    timerRef.current = window.setInterval(() => {
+      setVoiceSecs(Math.floor((Date.now() - startedAt) / 1000))
+    }, 250)
+  }
 
   // Draft from POST /api/entry. Nothing reaches the ledger until confirm.
   const [draft, setDraft] = useState<Entry | null>(null)
@@ -266,6 +347,7 @@ export default function App(): JSX.Element {
         </label>
         <textarea
           id="entry-text"
+          ref={entryBoxRef}
           className="entry-box"
           rows={3}
           placeholder="e.g. sold 5kg sugar for 800 bob"
@@ -287,11 +369,42 @@ export default function App(): JSX.Element {
           >
             {entryLoading ? 'Reading…' : 'Add'}
           </button>
-          <button type="button" className="btn mic" disabled title="Voice input is not ready yet">
+          <button
+            type="button"
+            className={voice === 'recording' ? 'btn mic recording' : 'btn mic'}
+            onClick={() => void handleMic()}
+            disabled={voice === 'working' || entryLoading}
+            title={
+              voice === 'recording'
+                ? 'Stop recording'
+                : 'Record a voice entry'
+            }
+          >
             <MicIcon />
-            Voice coming soon
+            {voice === 'recording'
+              ? `Stop (${formatVoiceTime(voiceSecs)})`
+              : voice === 'working'
+                ? 'Listening…'
+                : 'Voice'}
           </button>
         </div>
+        {voice === 'recording' && (
+          <p className="voice-status" role="status">
+            <span className="rec-dot" aria-hidden="true" />
+            Recording… {formatVoiceTime(voiceSecs)} — tap Stop when done
+            (max {formatVoiceTime(VOICE_MAX_SECONDS)}).
+          </p>
+        )}
+        {voice === 'working' && (
+          <p className="voice-status" role="status">
+            Turning speech into text… check the words, then press Add.
+          </p>
+        )}
+        {voiceError && (
+          <p className="message error" role="alert">
+            {voiceError}
+          </p>
+        )}
       </section>
 
       {draft && (

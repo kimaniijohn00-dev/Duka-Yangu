@@ -2,6 +2,8 @@
 .venv/
 *.db
 .pytest_cache/
+pytest-of-*/
+.pytest_tmp/
 __pycache__/
 node_modules/
 frontend/dist/

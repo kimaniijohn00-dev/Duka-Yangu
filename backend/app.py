@@ -4,11 +4,17 @@ import math
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from db import get_connection, init_db
 from services.spark import parse_entry
+from services.transcribe import (
+    MAX_AUDIO_BYTES,
+    MAX_DURATION_SECONDS,
+    transcribe_audio,
+    wav_duration_seconds,
+)
 
 
 @asynccontextmanager
@@ -181,6 +187,35 @@ def _validate_confirm_edits(payload: ConfirmIn) -> dict:
             )
         edits["amount_kes"] = payload.amount_kes
     return edits
+
+
+@app.post("/api/transcribe")
+async def transcribe_entry(audio: UploadFile = File(...)):
+    """Transcribe a short voice recording; return {"text": "..."}.
+
+    The upload is kept in memory only: it is never written to disk, the
+    database, or logs. 413 when the clip is too large or too long, 502
+    when transcription itself fails.
+    """
+    data = await audio.read(MAX_AUDIO_BYTES + 1)
+    if len(data) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Recording is too large. Keep it under about 2 MB / 60 seconds.",
+        )
+    if not data:
+        raise HTTPException(status_code=400, detail="No audio received.")
+    duration = wav_duration_seconds(data)
+    if duration is not None and duration > MAX_DURATION_SECONDS:
+        raise HTTPException(
+            status_code=413,
+            detail="Recording is longer than 60 seconds. Record a shorter clip.",
+        )
+    try:
+        text = transcribe_audio(data, audio.filename or "recording.wav")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"text": text}
 
 
 @app.get("/api/ledger")

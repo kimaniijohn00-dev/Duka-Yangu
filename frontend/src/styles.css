@@ -129,6 +129,40 @@ body {
   flex: 1;
 }
 
+.btn.mic.recording {
+  background: #fbe4e1;
+  border-color: #d33;
+  color: #a02a20;
+}
+
+.voice-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.rec-dot {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  background: #c62f24;
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .btn.linklike {
   background: none;
   border: none;
