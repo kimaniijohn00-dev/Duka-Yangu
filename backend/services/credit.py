@@ -273,6 +273,30 @@ def factor_trend(window_tx, as_of):
     )
 
 
+def weekly_series(transactions, as_of):
+    """Last 8 complete 7-day weeks, oldest first.
+
+    Each week reports integer-KES sums of confirmed sales, purchases and
+    expenses. Uses the same most-recent-56-days window as the stability
+    factor so the chart and the score agree.
+    """
+    usable = _confirmed_upto(transactions, as_of)
+    weeks = []
+    for index in range(WEEKS_FOR_STABILITY):
+        start = as_of - timedelta(days=55 - 7 * index)
+        end = start + timedelta(days=6)
+        totals = _sum_by_type(_in_window(usable, start, end))
+        weeks.append(
+            {
+                "week_start": start.isoformat(),
+                "sales_kes": int(totals.get("sale", 0)),
+                "purchases_kes": int(totals.get("purchase", 0)),
+                "expenses_kes": int(totals.get("expense", 0)),
+            }
+        )
+    return weeks
+
+
 def band_for_score(score):
     if score >= 80:
         return "Strong"
@@ -370,7 +394,7 @@ def assess_shop(transactions, as_of):
     loan, monthly = safe_loan_for_band(band, net_60, net_30)
     share_num, share_den = BAND_SHARES[band]
     return {
-        "status": "ready",
+        "status": "scored",
         "explanation": (
             f"Scored {score}/100 from {len(usable)} confirmed transactions"
             f" across {len(history_days)} days."

@@ -8,8 +8,25 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from db import get_connection, init_db
-from services.credit import DEMO_SHOP_NAME, assess_shop
+from services.credit import DEMO_SHOP_NAME, assess_shop, weekly_series
 from services.spark import parse_entry
+
+
+def _resolve_shop_row(conn, shop_id):
+    """Fetch one shop: explicit id, or the demo shop when omitted."""
+    if shop_id is None:
+        row = conn.execute(
+            "SELECT * FROM shops WHERE name = ?", (DEMO_SHOP_NAME,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=404, detail="Demo shop not found; pass shop_id."
+            )
+        return row
+    row = conn.execute("SELECT * FROM shops WHERE id = ?", (shop_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Shop not found.")
+    return row
 from services.transcribe import (
     MAX_AUDIO_BYTES,
     MAX_DURATION_SECONDS,
@@ -231,18 +248,7 @@ def credit_summary(shop_id: int | None = None, as_of: str | None = None):
         except ValueError:
             raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
     with get_connection() as conn:
-        if shop_id is None:
-            row = conn.execute(
-                "SELECT * FROM shops WHERE name = ?", (DEMO_SHOP_NAME,)
-            ).fetchone()
-            if row is None:
-                raise HTTPException(
-                    status_code=404, detail="Demo shop not found; pass shop_id."
-                )
-        else:
-            row = conn.execute("SELECT * FROM shops WHERE id = ?", (shop_id,)).fetchone()
-            if row is None:
-                raise HTTPException(status_code=404, detail="Shop not found.")
+        row = _resolve_shop_row(conn, shop_id)
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (row["id"],),
@@ -253,6 +259,34 @@ def credit_summary(shop_id: int | None = None, as_of: str | None = None):
         "shop_name": row["name"],
         "as_of": day.isoformat(),
         **result,
+    }
+
+
+@app.get("/api/dashboard/weekly")
+def dashboard_weekly(shop_id: int | None = None, as_of: str | None = None):
+    """Last 8 weeks of confirmed sales, purchases and expenses.
+
+    Oldest week first, integer KES. Defaults to the demo shop.
+    """
+    from datetime import date
+
+    day = date.today()
+    if as_of is not None:
+        try:
+            day = date.fromisoformat(as_of)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
+    with get_connection() as conn:
+        row = _resolve_shop_row(conn, shop_id)
+        ledger = conn.execute(
+            "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
+            (row["id"],),
+        ).fetchall()
+    return {
+        "shop_id": row["id"],
+        "shop_name": row["name"],
+        "as_of": day.isoformat(),
+        "weeks": weekly_series([dict(item) for item in ledger], day),
     }
 
 

@@ -161,7 +161,7 @@ def test_loss_making_shop_gets_no_loan():
     ledger = [tx(offset // 3, "sale", 100) for offset in range(120)]
     ledger += [tx(offset, "purchase", 400) for offset in range(40)]
     result = credit.assess_shop(ledger, AS_OF)
-    assert result["status"] == "ready"
+    assert result["status"] == "scored"
     assert result["safe_loan_kes"] == 0
     assert result["monthly_repayment_kes"] == 0
 
@@ -264,7 +264,7 @@ def test_endpoint_insufficient_data(monkeypatch, tmp_path):
     assert result["safe_loan_kes"] == 0
 
 
-def test_endpoint_ready_shape(monkeypatch, tmp_path):
+def test_endpoint_scored_shape(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
     shop_id = insert_shop(credit.DEMO_SHOP_NAME)
     for offset in range(40):
@@ -274,13 +274,79 @@ def test_endpoint_ready_shape(monkeypatch, tmp_path):
 
     result = appmod.credit_summary(as_of=AS_OF.isoformat())
 
-    assert result["status"] == "ready"
+    assert result["status"] == "scored"
     assert result["shop_id"] == shop_id
     assert result["band"] in ("Building", "Developing", "Ready", "Strong")
     assert len(result["factors"]) == 5
     assert result["term_months"] == 6
     assert result["tips"]
     assert result["disclaimer"] == credit.DISCLAIMER
+
+
+def test_weekly_series_buckets():
+    ledger = [
+        tx(53, "sale", 1000),  # oldest week
+        tx(53, "purchase", 400),
+        tx(53, "sale", 9999, confirmed=0),  # drafts never count
+        tx(4, "sale", 500),  # newest week
+        tx(4, "expense", 100),
+        tx(-5, "sale", 777),  # after as_of: out of scope
+    ]
+    weeks = credit.weekly_series(ledger, AS_OF)
+    assert len(weeks) == 8
+    assert weeks[0] == {
+        "week_start": "2026-02-04",
+        "sales_kes": 1000,
+        "purchases_kes": 400,
+        "expenses_kes": 0,
+    }
+    assert weeks[7] == {
+        "week_start": "2026-03-25",
+        "sales_kes": 500,
+        "purchases_kes": 0,
+        "expenses_kes": 100,
+    }
+    for week in weeks[1:7]:
+        assert week["sales_kes"] == 0
+        assert week["purchases_kes"] == 0
+        assert week["expenses_kes"] == 0
+    assert all(
+        isinstance(week[k], int)
+        for week in weeks
+        for k in ("sales_kes", "purchases_kes", "expenses_kes")
+    )
+
+
+def test_weekly_endpoint_defaults_to_demo(monkeypatch, tmp_path):
+    use_temp_db(monkeypatch, tmp_path)
+    shop_id = insert_shop(credit.DEMO_SHOP_NAME)
+    insert_tx(shop_id, 53, "sale", 1000)
+    insert_tx(shop_id, 53, "purchase", 400)
+    other_id = insert_shop("Other Duka")
+    insert_tx(other_id, 53, "sale", 50)
+
+    result = appmod.dashboard_weekly(as_of=AS_OF.isoformat())
+
+    assert result["shop_id"] == shop_id
+    assert result["shop_name"] == credit.DEMO_SHOP_NAME
+    assert len(result["weeks"]) == 8
+    assert result["weeks"][0]["sales_kes"] == 1000
+    assert result["weeks"][0]["purchases_kes"] == 400
+    explicit = appmod.dashboard_weekly(shop_id=other_id, as_of=AS_OF.isoformat())
+    assert explicit["weeks"][0]["sales_kes"] == 50
+
+
+def test_weekly_endpoint_errors(monkeypatch, tmp_path):
+    use_temp_db(monkeypatch, tmp_path)
+    with pytest.raises(HTTPException) as exc_info:
+        appmod.dashboard_weekly(shop_id=1, as_of="yesterday")
+    assert exc_info.value.status_code == 400
+    with pytest.raises(HTTPException) as exc_info:
+        appmod.dashboard_weekly(shop_id=4242)
+    assert exc_info.value.status_code == 404
+    with pytest.raises(HTTPException) as exc_info:
+        appmod.dashboard_weekly()
+    assert exc_info.value.status_code == 404
 
 
 def test_endpoint_bad_date_and_missing_shop(monkeypatch, tmp_path):

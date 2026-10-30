@@ -285,3 +285,167 @@ body {
   background: #fdf3d7;
   color: #6e5510;
 }
+
+.tabs {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  padding: 10px 0 4px;
+  background: var(--bg);
+}
+
+.tab {
+  flex: 1;
+  min-height: 52px;
+  font-size: 17px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tab.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.demo-banner {
+  background: #fdf3d7;
+  color: #6e5510;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0 0 16px;
+}
+
+.score-card {
+  text-align: center;
+}
+
+.score-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.score-number {
+  font-size: 34px;
+  font-weight: 800;
+  fill: var(--ink);
+}
+
+.score-denominator {
+  font-size: 15px;
+  fill: var(--muted);
+}
+
+.band {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 4px 0 0;
+}
+
+.factor {
+  margin-top: 14px;
+}
+
+.factor-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.factor-name {
+  font-weight: 700;
+}
+
+.factor-points {
+  color: var(--muted);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.bar {
+  height: 12px;
+  border-radius: 6px;
+  background: #e3e9e3;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.bar .fill {
+  height: 100%;
+  border-radius: 6px;
+  background: var(--green);
+}
+
+.factor-expl {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 6px 0 0;
+}
+
+.loan-big {
+  font-size: 34px;
+  font-weight: 800;
+  margin: 4px 0;
+}
+
+.tips {
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+
+.tips li {
+  margin-bottom: 8px;
+}
+
+.chart {
+  margin: 8px 0 0;
+  overflow-x: auto;
+}
+
+.legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.swatch.sales {
+  background: var(--green);
+}
+
+.swatch.costs {
+  background: #9aa39b;
+}
+
+.chart-label {
+  font-size: 11px;
+  fill: var(--muted);
+}
+
+.disclaimer {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 4px 0 8px;
+}

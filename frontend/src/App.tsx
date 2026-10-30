@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { confirmEntry, fetchLedger, postEntry, postTranscription } from './api'
+import Credit from './Credit'
+import { formatKES } from './format'
 import type { Entry, EntryType } from './types'
 import { VOICE_MAX_SECONDS, VoiceRecorder } from './voice'
 import './styles.css'
@@ -10,11 +12,6 @@ const TYPE_LABELS: Record<EntryType, string> = {
   expense: 'Expense',
   credit_given: 'Credit given',
   credit_received: 'Credit received',
-}
-
-/** Money is always integer KES, displayed like "KES 1,200". */
-export function formatKES(amountKes: number): string {
-  return `KES ${Math.round(amountKes).toLocaleString('en-KE')}`
 }
 
 function formatQuantity(quantity: number): string {
@@ -101,6 +98,7 @@ function MicIcon(): JSX.Element {
 }
 
 export default function App(): JSX.Element {
+  const [tab, setTab] = useState<'entries' | 'credit'>('entries')
   const [text, setText] = useState('')
   const [entryLoading, setEntryLoading] = useState(false)
   const [entryError, setEntryError] = useState<string | null>(null)
@@ -341,6 +339,8 @@ export default function App(): JSX.Element {
         <p className="tagline">Type what happened. Confirm. Done.</p>
       </header>
 
+      {tab === 'entries' ? (
+        <>
       <section className="card" aria-label="New entry">
         <label className="field-label" htmlFor="entry-text">
           New entry
@@ -583,6 +583,29 @@ export default function App(): JSX.Element {
           </ul>
         )}
       </section>
+        </>
+      ) : (
+        <Credit />
+      )}
+
+      <nav className="tabs" aria-label="Sections">
+        <button
+          type="button"
+          className={tab === 'entries' ? 'tab active' : 'tab'}
+          aria-selected={tab === 'entries'}
+          onClick={() => setTab('entries')}
+        >
+          Entries
+        </button>
+        <button
+          type="button"
+          className={tab === 'credit' ? 'tab active' : 'tab'}
+          aria-selected={tab === 'credit'}
+          onClick={() => setTab('credit')}
+        >
+          Credit
+        </button>
+      </nav>
     </main>
   )
 }

@@ -3,7 +3,7 @@
 //   POST /api/transactions/confirm { id } -> confirmed Entry
 //   GET /api/ledger -> Entry[] (confirmed only, newest first)
 //   POST /api/transcribe (multipart audio) -> { text }
-import type { Entry } from './types'
+import type { CreditSummary, Entry, WeeklyBar } from './types'
 
 export interface EditedValues {
   item: string
@@ -110,6 +110,47 @@ export async function postTranscription(audio: Blob): Promise<string> {
     throw new Error('Heard nothing usable — hold the mic closer and try again.')
   }
   return text
+}
+
+export async function fetchCreditSummary(): Promise<CreditSummary> {
+  let res: Response
+  try {
+    res = await fetch('/api/credit/summary')
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend, then tap Retry.',
+    )
+  }
+  if (res.status === 404) {
+    throw new Error(
+      'No demo data yet. Seed the demo shop first, then open this tab.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  return (await res.json()) as CreditSummary
+}
+
+export async function fetchWeekly(): Promise<WeeklyBar[]> {
+  let res: Response
+  try {
+    res = await fetch('/api/dashboard/weekly')
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend, then tap Retry.',
+    )
+  }
+  if (res.status === 404) {
+    throw new Error(
+      'No demo data yet. Seed the demo shop first, then open this tab.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  const data = (await res.json()) as { weeks: WeeklyBar[] }
+  return data.weeks
 }
 
 export async function fetchLedger(): Promise<Entry[]> {
