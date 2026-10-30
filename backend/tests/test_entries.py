@@ -200,6 +200,48 @@ def test_confirm_rejects_invalid_edits(monkeypatch, isolated_db, kwargs):
     assert tuple(row) == ("sugar", 5, 800, 0)
 
 
+def _insert_confirmed(monkeypatch, shop_id, item="sugar", amount=800):
+    import db as dbmod
+
+    with dbmod.get_connection() as conn:
+        if shop_id is not None:
+            conn.execute(
+                "INSERT OR IGNORE INTO shops (id, name, location, created_at)"
+                " VALUES (?, 'shop', 'test', '2026-01-01T08:00:00+03:00')",
+                (shop_id,),
+            )
+        conn.execute(
+            """INSERT INTO transactions
+               (shop_id, type, item, quantity, unit, amount_kes,
+                counterparty, raw_text, source, confirmed,
+                occurred_at, created_at)
+               VALUES (?, 'sale', ?, 1, 'pcs', ?, NULL, 'test',
+                       'api', 1, '2026-03-01T09:00:00+03:00',
+                       '2026-03-01T09:00:00+03:00')""",
+            (shop_id, item, amount),
+        )
+
+
+def test_ledger_defaults_to_own_entries(monkeypatch, isolated_db):
+    _insert_confirmed(monkeypatch, None, item="sugar")
+    _insert_confirmed(monkeypatch, 999999, item="bread")
+
+    ledger = appmod.read_ledger()
+
+    assert [entry["item"] for entry in ledger] == ["sugar"]
+    assert all(entry["shop_id"] is None for entry in ledger)
+
+
+def test_ledger_accepts_explicit_shop_id(monkeypatch, isolated_db):
+    _insert_confirmed(monkeypatch, None, item="sugar")
+    _insert_confirmed(monkeypatch, 999999, item="bread")
+
+    ledger = appmod.read_ledger(shop_id=999999)
+
+    assert [entry["item"] for entry in ledger] == ["bread"]
+    assert all(entry["shop_id"] == 999999 for entry in ledger)
+
+
 def test_confirm_with_edits_writes_audit_entry(monkeypatch, isolated_db):
     draft = make_draft(monkeypatch)
 

@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from db import get_connection, init_db
+from services.credit import DEMO_SHOP_NAME, assess_shop
 from services.spark import parse_entry
 from services.transcribe import (
     MAX_AUDIO_BYTES,
@@ -218,12 +219,61 @@ async def transcribe_entry(audio: UploadFile = File(...)):
     return {"text": text}
 
 
-@app.get("/api/ledger")
-def read_ledger():
-    """Return confirmed entries only, newest first. Drafts never appear."""
+@app.get("/api/credit/summary")
+def credit_summary(shop_id: int | None = None, as_of: str | None = None):
+    """Credit-readiness estimate for one shop. An estimate, never a decision."""
+    from datetime import date
+
+    day = date.today()
+    if as_of is not None:
+        try:
+            day = date.fromisoformat(as_of)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM transactions WHERE confirmed = 1"
-            " ORDER BY occurred_at DESC, id DESC"
+        if shop_id is None:
+            row = conn.execute(
+                "SELECT * FROM shops WHERE name = ?", (DEMO_SHOP_NAME,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(
+                    status_code=404, detail="Demo shop not found; pass shop_id."
+                )
+        else:
+            row = conn.execute("SELECT * FROM shops WHERE id = ?", (shop_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Shop not found.")
+        ledger = conn.execute(
+            "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
+            (row["id"],),
         ).fetchall()
+    result = assess_shop([dict(item) for item in ledger], day)
+    return {
+        "shop_id": row["id"],
+        "shop_name": row["name"],
+        "as_of": day.isoformat(),
+        **result,
+    }
+
+
+@app.get("/api/ledger")
+def read_ledger(shop_id: int | None = None):
+    """Return confirmed entries only, newest first. Drafts never appear.
+
+    Without shop_id this returns the shopkeeper's own entries
+    (shop_id IS NULL), so seeded demo data never mixes in. Pass an
+    explicit shop_id for that shop's dashboard slice instead.
+    """
+    with get_connection() as conn:
+        if shop_id is None:
+            rows = conn.execute(
+                "SELECT * FROM transactions WHERE confirmed = 1 AND shop_id IS NULL"
+                " ORDER BY occurred_at DESC, id DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM transactions WHERE confirmed = 1 AND shop_id = ?"
+                " ORDER BY occurred_at DESC, id DESC",
+                (shop_id,),
+            ).fetchall()
     return [_entry_from_row(r) for r in rows]
