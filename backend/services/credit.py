@@ -340,6 +340,24 @@ def pick_tips(factors):
     ]
 
 
+def resolve_as_of(shop_name, transactions, today):
+    """Effective "as of" date for credit math.
+
+    The synthetic demo shop (the one the seeder creates) is frozen in
+    time: its data never grows, so scoring it "today" would let the score
+    drift as the data ages. Pin it to the date of its latest confirmed
+    transaction instead, keeping score, loan, tips and weekly figures
+    stable no matter what day it is. Every other shop uses the real
+    current date. With no confirmed transactions there is nothing to pin
+    to, so today is returned.
+    """
+    if shop_name == DEMO_SHOP_NAME:
+        dated = [tx for tx in transactions if tx.get("confirmed") == 1]
+        if dated:
+            return max(_tx_date(tx) for tx in dated)
+    return today
+
+
 def assess_shop(transactions, as_of):
     """Score one shop. Returns status, score, band, factors, loan and tips."""
     usable = _confirmed_upto(transactions, as_of)

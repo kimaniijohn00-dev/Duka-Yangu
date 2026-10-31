@@ -449,3 +449,151 @@ body {
   font-size: 14px;
   margin: 4px 0 8px;
 }
+
+/* Business Passport: shopkeeper tab and lender page. */
+
+.check-group {
+  border: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.check-group .field-label {
+  padding: 0;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--green);
+  flex: none;
+}
+
+.consent {
+  background: #f4f8f4;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0 0;
+}
+
+.link-once {
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.link-box {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  word-break: break-all;
+  background: #f4f8f4;
+  border: 1px dashed var(--green);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0;
+}
+
+a.btn.secondary {
+  text-decoration: none;
+}
+
+.passport-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.passport-row {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+.passport-main {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 17px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.passport-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.passport-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.status-active {
+  background: #e2f1e5;
+  color: var(--green-dark);
+}
+
+.status-expired {
+  background: #fdf3d7;
+  color: #6e5510;
+}
+
+.status-revoked {
+  background: #fbe9e4;
+  color: #8f3226;
+}
+
+.passport-detail {
+  margin-top: 8px;
+}
+
+.activity-list {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.activity-list li {
+  margin-bottom: 4px;
+}
+
+.confirm-box {
+  background: var(--error-bg);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.confirm-box p {
+  margin: 0 0 4px;
+  color: var(--error-ink);
+  font-weight: 600;
+}
+
+.passport-row > .btn.secondary {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.lender-footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  margin: 16px 0 8px;
+}

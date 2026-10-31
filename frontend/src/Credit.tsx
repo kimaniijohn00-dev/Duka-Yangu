@@ -1,62 +1,10 @@
 import { useEffect, useState } from 'react'
 import { fetchCreditSummary, fetchExplanation, fetchWeekly } from './api'
+import { FactorBars, LoanCard, ScoreRing, weekLabel } from './creditShared'
 import { formatKES } from './format'
 import type { CreditSummary, Explanation, WeeklyBar } from './types'
 
-const BAND_COLORS: Record<string, string> = {
-  Building: '#b23c17',
-  Developing: '#96690a',
-  Ready: '#1b6b3a',
-  Strong: '#0d4d26',
-}
-
 const DISCLAIMER = 'Estimate only, not a lending decision.'
-
-function ScoreRing({ score, band }: { score: number; band: string }): JSX.Element {
-  const radius = 60
-  const circumference = 2 * Math.PI * radius
-  const done = (Math.min(100, Math.max(0, score)) / 100) * circumference
-  const color = BAND_COLORS[band] ?? '#1b6b3a'
-  return (
-    <div className="score-wrap">
-      <svg
-        className="score-ring"
-        width="150"
-        height="150"
-        viewBox="0 0 150 150"
-        role="img"
-        aria-label={`Credit score ${score} out of 100, band ${band}`}
-      >
-        <circle cx="75" cy="75" r={radius} fill="none" stroke="#e3e9e3" strokeWidth="14" />
-        <circle
-          cx="75"
-          cy="75"
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth="14"
-          strokeLinecap="round"
-          strokeDasharray={`${done} ${circumference}`}
-          transform="rotate(-90 75 75)"
-        />
-        <text x="75" y="74" textAnchor="middle" className="score-number">
-          {score}
-        </text>
-        <text x="75" y="94" textAnchor="middle" className="score-denominator">
-          / 100
-        </text>
-      </svg>
-      <p className="band" style={{ color }}>
-        {band}
-      </p>
-    </div>
-  )
-}
-
-function weekLabel(iso: string): string {
-  const date = new Date(`${iso}T00:00:00`)
-  return `${date.getDate()}/${date.getMonth() + 1}`
-}
 
 function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }): JSX.Element {
   const costs = (week: WeeklyBar): number => week.purchases_kes + week.expenses_kes
@@ -205,39 +153,12 @@ export default function Credit(): JSX.Element {
 
             <section className="card" aria-label="Score factors">
               <h2>What makes the score</h2>
-              {summary.factors.map((factor) => (
-                <div className="factor" key={factor.name}>
-                  <div className="factor-top">
-                    <span className="factor-name">{factor.name}</span>
-                    <span className="factor-points">
-                      {factor.points}/{factor.max_points}
-                    </span>
-                  </div>
-                  <div
-                    className="bar"
-                    role="img"
-                    aria-label={`${factor.name}: ${factor.points} of ${factor.max_points} points`}
-                  >
-                    <div
-                      className="fill"
-                      style={{ width: `${(factor.points / factor.max_points) * 100}%` }}
-                    />
-                  </div>
-                  <p className="factor-expl">{factor.explanation}</p>
-                </div>
-              ))}
+              <FactorBars factors={summary.factors} />
             </section>
 
             <section className="card" aria-label="Safe loan estimate">
               <h2>Safe loan estimate</h2>
-              <p className="loan-big">{formatKES(summary.safe_loan_kes)}</p>
-              <p>
-                about {formatKES(summary.monthly_repayment_kes)} a month for{' '}
-                {summary.term_months} months
-              </p>
-              {summary.loan_reasoning && (
-                <p className="hint">{summary.loan_reasoning}</p>
-              )}
+              <LoanCard loan={summary} />
             </section>
 
             <section className="card" aria-label="In plain English">

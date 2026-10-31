@@ -280,10 +280,9 @@ def test_endpoint_explain_insufficient(monkeypatch, tmp_path):
 
     result = appmod.credit_explain(shop_id=shop_id)
 
-    assert result == {
-        "text": explainmod.INSUFFICIENT_MESSAGE,
-        "source": "template",
-    }
+    assert result["text"] == explainmod.INSUFFICIENT_MESSAGE
+    assert result["source"] == "template"
+    assert result["as_of"] == appmod._utcnow().date().isoformat()
 
 
 def test_endpoint_explain_errors(monkeypatch, tmp_path):

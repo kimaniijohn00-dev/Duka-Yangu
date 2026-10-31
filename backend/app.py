@@ -9,7 +9,12 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from db import get_connection, init_db
-from services.credit import DEMO_SHOP_NAME, assess_shop, weekly_series
+from services.credit import (
+    DEMO_SHOP_NAME,
+    assess_shop,
+    resolve_as_of,
+    weekly_series,
+)
 from services.explain import explain_credit
 from services.passport import (
     VALID_EXPIRY_DAYS,
@@ -36,6 +41,21 @@ def _resolve_shop_row(conn, shop_id):
     if row is None:
         raise HTTPException(status_code=404, detail="Shop not found.")
     return row
+
+
+def _parse_as_of(as_of: str | None):
+    """Explicit ?as_of=YYYY-MM-DD, or None when the caller passed none.
+
+    400 on a bad date. A parsed date always wins over the demo-shop pin.
+    """
+    from datetime import date
+
+    if as_of is None:
+        return None
+    try:
+        return date.fromisoformat(as_of)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
 from services.transcribe import (
     MAX_AUDIO_BYTES,
     MAX_DURATION_SECONDS,
@@ -314,21 +334,20 @@ async def transcribe_entry(audio: UploadFile = File(...)):
 @app.get("/api/credit/summary")
 def credit_summary(shop_id: int | None = None, as_of: str | None = None):
     """Credit-readiness estimate for one shop. An estimate, never a decision."""
-    from datetime import date
-
-    day = date.today()
-    if as_of is not None:
-        try:
-            day = date.fromisoformat(as_of)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
+    explicit = _parse_as_of(as_of)
     with get_connection() as conn:
         row = _resolve_shop_row(conn, shop_id)
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (row["id"],),
         ).fetchall()
-    result = assess_shop([dict(item) for item in ledger], day)
+        items = [dict(item) for item in ledger]
+        day = (
+            explicit
+            if explicit is not None
+            else resolve_as_of(row["name"], items, _utcnow().date())
+        )
+    result = assess_shop(items, day)
     return {
         "shop_id": row["id"],
         "shop_name": row["name"],
@@ -343,25 +362,24 @@ def dashboard_weekly(shop_id: int | None = None, as_of: str | None = None):
 
     Oldest week first, integer KES. Defaults to the demo shop.
     """
-    from datetime import date
-
-    day = date.today()
-    if as_of is not None:
-        try:
-            day = date.fromisoformat(as_of)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
+    explicit = _parse_as_of(as_of)
     with get_connection() as conn:
         row = _resolve_shop_row(conn, shop_id)
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (row["id"],),
         ).fetchall()
+        items = [dict(item) for item in ledger]
+        day = (
+            explicit
+            if explicit is not None
+            else resolve_as_of(row["name"], items, _utcnow().date())
+        )
     return {
         "shop_id": row["id"],
         "shop_name": row["name"],
         "as_of": day.isoformat(),
-        "weeks": weekly_series([dict(item) for item in ledger], day),
+        "weeks": weekly_series(items, day),
     }
 
 
@@ -373,22 +391,21 @@ def credit_explain(shop_id: int | None = None, as_of: str | None = None):
     message is returned instead. Spark's reply is number-checked and any
     failure falls back to a deterministic template; see services/explain.
     """
-    from datetime import date
-
-    day = date.today()
-    if as_of is not None:
-        try:
-            day = date.fromisoformat(as_of)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
+    explicit = _parse_as_of(as_of)
     with get_connection() as conn:
         row = _resolve_shop_row(conn, shop_id)
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (row["id"],),
         ).fetchall()
-    result = assess_shop([dict(item) for item in ledger], day)
-    return explain_credit(result)
+        items = [dict(item) for item in ledger]
+        day = (
+            explicit
+            if explicit is not None
+            else resolve_as_of(row["name"], items, _utcnow().date())
+        )
+    result = assess_shop(items, day)
+    return {"as_of": day.isoformat(), **explain_credit(result)}
 
 
 @app.get("/api/ledger")
@@ -439,17 +456,17 @@ def create_passport(payload: PassportCreateIn):
         )
     scope = list(dict.fromkeys(sections))
     now = _utcnow()
-    today = now.date()
     with get_connection() as conn:
         shop = _resolve_shop_row(conn, payload.shop_id)
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (shop["id"],),
         ).fetchall()
+        items = [dict(item) for item in ledger]
         snapshot = build_snapshot(
             shop["name"],
-            [dict(item) for item in ledger],
-            today,
+            items,
+            resolve_as_of(shop["name"], items, now.date()),
             scope,
             now.isoformat(),
         )
@@ -580,4 +597,5 @@ def view_passport(token: str, request: Request):
         snapshot = filter_snapshot(
             json.loads(row["snapshot_json"]), json.loads(row["scope"])
         )
+        snapshot["expires_at"] = row["expires_at"]
     return snapshot

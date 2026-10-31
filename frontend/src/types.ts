@@ -52,6 +52,72 @@ export interface Explanation {
   source: 'spark' | 'template'
 }
 
+// Business Passport shapes mirror the FastAPI backend exactly:
+// POST /api/passports -> { id, token, share_path, expires_at }
+// GET /api/passports -> ShopPassport[] (never tokens or hashes)
+// GET /api/passports/{id}/activity -> { passport_id, views }
+// GET /api/p/{token} -> PassportSnapshot (only the chosen sections)
+
+export type PassportSection = 'score' | 'loan' | 'performance'
+
+export interface PassportScore {
+  score: number | null
+  band: string | null
+  factors: CreditFactor[]
+}
+
+export interface PassportLoan {
+  safe_loan_kes: number
+  monthly_repayment_kes: number
+  term_months: number
+  loan_reasoning: string
+}
+
+export interface PassportWeeklySale {
+  week_start: string
+  sales_kes: number
+}
+
+export interface PassportPerformance {
+  total_sales_kes: number
+  total_purchases_kes: number
+  total_expenses_kes: number
+  net_margin_pct: number
+  outstanding_credit_kes: number
+  weekly_sales_kes: PassportWeeklySale[]
+}
+
+export interface PassportSnapshot {
+  shop_name: string
+  generated_at: string
+  as_of?: string
+  is_demo_shop: boolean
+  demo_note?: string
+  disclaimer: string
+  expires_at?: string
+  score?: PassportScore
+  loan?: PassportLoan
+  performance?: PassportPerformance
+}
+
+export type PassportStatus = 'active' | 'expired' | 'revoked'
+
+export interface ShopPassport {
+  id: number
+  lender_name: string
+  scope: PassportSection[]
+  created_at: string
+  expires_at: string
+  status: PassportStatus
+  view_count: number
+  last_viewed_at: string | null
+}
+
+export interface PassportActivity {
+  passport_id: number
+  views: string[]
+}
+
 export interface Entry {
   id: number
   shop_id: number | null

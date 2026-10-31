@@ -2,9 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { confirmEntry, fetchLedger, postEntry, postTranscription } from './api'
 import Credit from './Credit'
 import { formatKES } from './format'
+import LenderPassport from './LenderPassport'
+import Passport from './Passport'
 import type { Entry, EntryType } from './types'
 import { VOICE_MAX_SECONDS, VoiceRecorder } from './voice'
 import './styles.css'
+
+/** Lender links live at /p/<token>: no tab bar, no shopkeeper UI. */
+function lenderTokenFromPath(): string | null {
+  const match = window.location.pathname.match(/^\/p\/([^/]+)\/?$/)
+  return match ? decodeURIComponent(match[1]) : null
+}
 
 const TYPE_LABELS: Record<EntryType, string> = {
   sale: 'Sale',
@@ -98,7 +106,15 @@ function MicIcon(): JSX.Element {
 }
 
 export default function App(): JSX.Element {
-  const [tab, setTab] = useState<'entries' | 'credit'>('entries')
+  const [tab, setTab] = useState<'entries' | 'credit' | 'passport'>('entries')
+  const lenderToken = lenderTokenFromPath()
+  if (lenderToken) {
+    return (
+      <main className="app">
+        <LenderPassport token={lenderToken} />
+      </main>
+    )
+  }
   const [text, setText] = useState('')
   const [entryLoading, setEntryLoading] = useState(false)
   const [entryError, setEntryError] = useState<string | null>(null)
@@ -584,8 +600,10 @@ export default function App(): JSX.Element {
         )}
       </section>
         </>
-      ) : (
+      ) : tab === 'credit' ? (
         <Credit />
+      ) : (
+        <Passport />
       )}
 
       <nav className="tabs" aria-label="Sections">
@@ -604,6 +622,14 @@ export default function App(): JSX.Element {
           onClick={() => setTab('credit')}
         >
           Credit
+        </button>
+        <button
+          type="button"
+          className={tab === 'passport' ? 'tab active' : 'tab'}
+          aria-selected={tab === 'passport'}
+          onClick={() => setTab('passport')}
+        >
+          Passport
         </button>
       </nav>
     </main>

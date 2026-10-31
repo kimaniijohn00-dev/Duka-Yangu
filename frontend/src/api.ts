@@ -3,7 +3,16 @@
 //   POST /api/transactions/confirm { id } -> confirmed Entry
 //   GET /api/ledger -> Entry[] (confirmed only, newest first)
 //   POST /api/transcribe (multipart audio) -> { text }
-import type { CreditSummary, Entry, Explanation, WeeklyBar } from './types'
+import type {
+  CreditSummary,
+  Entry,
+  Explanation,
+  PassportActivity,
+  PassportSection,
+  PassportSnapshot,
+  ShopPassport,
+  WeeklyBar,
+} from './types'
 
 export interface EditedValues {
   item: string
@@ -186,4 +195,106 @@ export async function fetchLedger(): Promise<Entry[]> {
     throw new Error(await detailMessage(res))
   }
   return (await res.json()) as Entry[]
+}
+
+// Business Passport calls. The raw share token is returned once by
+// createPassport and must never be stored anywhere. Status errors carry
+// the HTTP code so the lender page can show the right message per code.
+export class ApiStatusError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+export interface CreatedPassport {
+  id: number
+  token: string
+  share_path: string
+  expires_at: string
+}
+
+export async function createPassport(input: {
+  lender_name: string
+  expires_in_days: number
+  sections: PassportSection[]
+}): Promise<CreatedPassport> {
+  let res: Response
+  try {
+    res = await fetch('/api/passports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend, then try again.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  return (await res.json()) as CreatedPassport
+}
+
+export async function fetchPassports(): Promise<ShopPassport[]> {
+  let res: Response
+  try {
+    res = await fetch('/api/passports')
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend, then tap Retry.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  return (await res.json()) as ShopPassport[]
+}
+
+export async function revokePassport(id: number): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`/api/passports/${id}/revoke`, { method: 'POST' })
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend, then try again.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+}
+
+export async function fetchPassportActivity(
+  id: number,
+): Promise<PassportActivity> {
+  let res: Response
+  try {
+    res = await fetch(`/api/passports/${id}/activity`)
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Start the backend, then tap Retry.',
+    )
+  }
+  if (!res.ok) {
+    throw new Error(await detailMessage(res))
+  }
+  return (await res.json()) as PassportActivity
+}
+
+export async function fetchPublicPassport(
+  token: string,
+): Promise<PassportSnapshot> {
+  let res: Response
+  try {
+    res = await fetch(`/api/p/${token}`)
+  } catch {
+    throw new ApiStatusError(0, 'network')
+  }
+  if (!res.ok) {
+    throw new ApiStatusError(res.status, await detailMessage(res))
+  }
+  return (await res.json()) as PassportSnapshot
 }

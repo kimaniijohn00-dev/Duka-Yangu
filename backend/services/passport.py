@@ -22,7 +22,14 @@ DEMO_NOTE = "Demo shop with synthetic data"
 
 # Snapshot keys that are always present, even when a section is not shared.
 BASE_KEYS = frozenset(
-    {"shop_name", "generated_at", "is_demo_shop", "demo_note", "disclaimer"}
+    {
+        "shop_name",
+        "generated_at",
+        "as_of",
+        "is_demo_shop",
+        "demo_note",
+        "disclaimer",
+    }
 )
 
 
@@ -73,6 +80,7 @@ def build_snapshot(shop_name, ledger, as_of, sections, generated_at):
     snapshot = {
         "shop_name": shop_name,
         "generated_at": generated_at,
+        "as_of": as_of.isoformat(),
         "is_demo_shop": is_demo,
         "disclaimer": DISCLAIMER,
     }
