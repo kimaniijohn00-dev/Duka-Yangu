@@ -1,15 +1,23 @@
 """Duka-Yangu FastAPI backend."""
 import json
 import math
+import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from db import get_connection, init_db
 from services.credit import DEMO_SHOP_NAME, assess_shop, weekly_series
 from services.explain import explain_credit
+from services.passport import (
+    VALID_EXPIRY_DAYS,
+    VALID_SECTIONS,
+    build_snapshot,
+    filter_snapshot,
+    hash_token,
+)
 from services.spark import parse_entry
 
 
@@ -55,6 +63,72 @@ class ConfirmIn(BaseModel):
     item: str | None = None
     quantity: float | None = None
     amount_kes: int | None = None
+
+
+class PassportCreateIn(BaseModel):
+    lender_name: str
+    expires_in_days: int
+    sections: list[str] | None = None
+    shop_id: int | None = None
+
+
+RATE_LIMIT_MAX_REQUESTS = 30
+RATE_LIMIT_WINDOW_SECONDS = 60
+
+# Client IP -> timestamps of recent GET /api/p/{token} hits, pruned on use.
+_rate_limit_hits: dict[str, list[datetime]] = {}
+
+
+def _utcnow() -> datetime:
+    """Current UTC time. Monkeypatchable so tests can control the clock."""
+    return datetime.now(timezone.utc)
+
+
+def _client_ip(request: Request) -> str:
+    if request.client is not None:
+        return request.client.host
+    return "unknown"
+
+
+def _rate_limited(ip: str, now: datetime) -> bool:
+    cutoff = now - timedelta(seconds=RATE_LIMIT_WINDOW_SECONDS)
+    hits = [hit for hit in _rate_limit_hits.get(ip, []) if hit > cutoff]
+    hits.append(now)
+    _rate_limit_hits[ip] = hits
+    return len(hits) > RATE_LIMIT_MAX_REQUESTS
+
+
+def _passport_status(row, now: datetime) -> str:
+    if row["revoked_at"] is not None:
+        return "revoked"
+    if now > datetime.fromisoformat(row["expires_at"]):
+        return "expired"
+    return "active"
+
+
+def _passport_summary(conn, row, now: datetime) -> dict:
+    views = conn.execute(
+        "SELECT COUNT(*), MAX(viewed_at) FROM passport_views WHERE passport_id = ?",
+        (row["id"],),
+    ).fetchone()
+    return {
+        "id": row["id"],
+        "lender_name": row["lender_name"],
+        "scope": json.loads(row["scope"]),
+        "created_at": row["created_at"],
+        "expires_at": row["expires_at"],
+        "status": _passport_status(row, now),
+        "view_count": views[0],
+        "last_viewed_at": views[1],
+    }
+
+
+def _audit_passport(conn, action: str, passport_id: int, detail: str | None, now: str):
+    conn.execute(
+        "INSERT INTO audit_log (action, entity, entity_id, detail, created_at)"
+        " VALUES (?, 'passport', ?, ?, ?)",
+        (action, passport_id, detail, now),
+    )
 
 
 def _entry_from_row(row) -> dict:
@@ -338,3 +412,172 @@ def read_ledger(shop_id: int | None = None):
                 (shop_id,),
             ).fetchall()
     return [_entry_from_row(r) for r in rows]
+
+
+@app.post("/api/passports")
+def create_passport(payload: PassportCreateIn):
+    """Share a snapshot of the shop's credit summary with one lender.
+
+    The raw share token is returned exactly once, here. Only its
+    SHA-256 hash is stored; it never appears in logs or audit rows.
+    """
+    lender_name = payload.lender_name.strip()
+    if not 1 <= len(lender_name) <= 60:
+        raise HTTPException(
+            status_code=422, detail="lender_name must be 1-60 characters"
+        )
+    if payload.expires_in_days not in VALID_EXPIRY_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"expires_in_days must be one of {list(VALID_EXPIRY_DAYS)}",
+        )
+    sections = list(VALID_SECTIONS) if payload.sections is None else payload.sections
+    if not isinstance(sections, list) or any(s not in VALID_SECTIONS for s in sections):
+        raise HTTPException(
+            status_code=422,
+            detail=f"sections must be a list drawn from {list(VALID_SECTIONS)}",
+        )
+    scope = list(dict.fromkeys(sections))
+    now = _utcnow()
+    today = now.date()
+    with get_connection() as conn:
+        shop = _resolve_shop_row(conn, payload.shop_id)
+        ledger = conn.execute(
+            "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
+            (shop["id"],),
+        ).fetchall()
+        snapshot = build_snapshot(
+            shop["name"],
+            [dict(item) for item in ledger],
+            today,
+            scope,
+            now.isoformat(),
+        )
+        token = secrets.token_urlsafe(32)
+        created_at = now.isoformat()
+        expires_at = (now + timedelta(days=payload.expires_in_days)).isoformat()
+        cur = conn.execute(
+            """INSERT INTO passports
+               (shop_id, lender_name, scope, snapshot_json, token_hash,
+                created_at, expires_at, revoked_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+            (
+                shop["id"],
+                lender_name,
+                json.dumps(scope),
+                json.dumps(snapshot),
+                hash_token(token),
+                created_at,
+                expires_at,
+            ),
+        )
+        passport_id = cur.lastrowid
+        _audit_passport(conn, "passport_created", passport_id, lender_name, created_at)
+    return {
+        "id": passport_id,
+        "token": token,
+        "share_path": f"/p/{token}",
+        "expires_at": expires_at,
+    }
+
+
+@app.get("/api/passports")
+def list_passports(shop_id: int | None = None):
+    """The shop's passports with view counts. Never tokens or hashes."""
+    now = _utcnow()
+    with get_connection() as conn:
+        if shop_id is not None:
+            _resolve_shop_row(conn, shop_id)
+            rows = conn.execute(
+                "SELECT * FROM passports WHERE shop_id = ? ORDER BY id DESC",
+                (shop_id,),
+            ).fetchall()
+        else:
+            demo = conn.execute(
+                "SELECT * FROM shops WHERE name = ?", (DEMO_SHOP_NAME,)
+            ).fetchone()
+            if demo is None:
+                rows = conn.execute(
+                    "SELECT * FROM passports ORDER BY id DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM passports WHERE shop_id = ? ORDER BY id DESC",
+                    (demo["id"],),
+                ).fetchall()
+        return [_passport_summary(conn, row, now) for row in rows]
+
+
+@app.post("/api/passports/{passport_id}/revoke")
+def revoke_passport(passport_id: int):
+    """Revoke a passport. Idempotent: revoking twice is still a 200."""
+    now = _utcnow().isoformat()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM passports WHERE id = ?", (passport_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Passport not found.")
+        if row["revoked_at"] is None:
+            conn.execute(
+                "UPDATE passports SET revoked_at = ? WHERE id = ?",
+                (now, passport_id),
+            )
+            _audit_passport(
+                conn, "passport_revoked", passport_id, row["lender_name"], now
+            )
+            revoked_at = now
+        else:
+            revoked_at = row["revoked_at"]
+    return {"id": passport_id, "status": "revoked", "revoked_at": revoked_at}
+
+
+@app.get("/api/passports/{passport_id}/activity")
+def passport_activity(passport_id: int):
+    """View timestamps for one passport, oldest first."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM passports WHERE id = ?", (passport_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Passport not found.")
+        views = conn.execute(
+            "SELECT viewed_at FROM passport_views WHERE passport_id = ?"
+            " ORDER BY viewed_at ASC, id ASC",
+            (passport_id,),
+        ).fetchall()
+    return {"passport_id": passport_id, "views": [view["viewed_at"] for view in views]}
+
+
+@app.get("/api/p/{token}")
+def view_passport(token: str, request: Request):
+    """Public lender view: the snapshot filtered to the chosen sections."""
+    now = _utcnow()
+    if _rate_limited(_client_ip(request), now):
+        raise HTTPException(
+            status_code=429, detail="Too many requests. Try again in a minute."
+        )
+    stamped = now.isoformat()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM passports WHERE token_hash = ?", (hash_token(token),)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Passport not found.")
+        if row["revoked_at"] is not None:
+            raise HTTPException(
+                status_code=410, detail="This link has been revoked by the shop."
+            )
+        if now > datetime.fromisoformat(row["expires_at"]):
+            raise HTTPException(
+                status_code=410, detail="This link has expired."
+            )
+        conn.execute(
+            "INSERT INTO passport_views (passport_id, viewed_at) VALUES (?, ?)",
+            (row["id"], stamped),
+        )
+        _audit_passport(conn, "passport_viewed", row["id"], None, stamped)
+        snapshot = filter_snapshot(
+            json.loads(row["snapshot_json"]), json.loads(row["scope"])
+        )
+    return snapshot

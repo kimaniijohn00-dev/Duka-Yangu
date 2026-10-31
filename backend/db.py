@@ -46,6 +46,24 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS passports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shop_id INTEGER REFERENCES shops(id),
+    lender_name TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS passport_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    passport_id INTEGER REFERENCES passports(id),
+    viewed_at TEXT NOT NULL
+);
 """
 
 
