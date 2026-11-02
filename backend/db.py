@@ -1,8 +1,11 @@
 """SQLite schema and helpers for the Duka-Yangu backend."""
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent / "duka.db"
+# Overridden on Modal (DUKA_DB_PATH=/data/duka.db on the data Volume).
+# Local default is unchanged: backend/duka.db next to this file.
+DB_PATH = Path(os.getenv("DUKA_DB_PATH") or (Path(__file__).resolve().parent / "duka.db"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS shops (
@@ -63,6 +66,23 @@ CREATE TABLE IF NOT EXISTS passport_views (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     passport_id INTEGER REFERENCES passports(id),
     viewed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS usage_counters (
+    day TEXT NOT NULL,
+    name TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, name)
+);
+
+CREATE TABLE IF NOT EXISTS explain_cache (
+    shop_id INTEGER NOT NULL,
+    score INTEGER NOT NULL,
+    as_of TEXT NOT NULL,
+    text TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'template',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (shop_id, score, as_of)
 );
 """
 

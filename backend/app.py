@@ -1,11 +1,14 @@
 """Duka-Yangu FastAPI backend."""
 import json
 import math
+import os
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from db import get_connection, init_db
@@ -15,7 +18,7 @@ from services.credit import (
     resolve_as_of,
     weekly_series,
 )
-from services.explain import explain_credit
+from services.explain import explain_credit, template_explanation
 from services.passport import (
     VALID_EXPIRY_DAYS,
     VALID_SECTIONS,
@@ -67,7 +70,30 @@ from services.transcribe import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    ensure_demo_seed()
     yield
+
+
+def ensure_demo_seed() -> None:
+    """Seed the demo shop once, on first start.
+
+    Runs only when the demo shop row is missing. The seeder itself is
+    idempotent and touches only the demo shop's rows, so existing data
+    (demo or real) is never modified or duplicated.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM shops WHERE name = ?", (DEMO_SHOP_NAME,)
+        ).fetchone()
+        if row is not None:
+            return
+    import importlib.util
+
+    seed_path = Path(__file__).resolve().parent / "scripts" / "seed_demo.py"
+    spec = importlib.util.spec_from_file_location("duka_seed_demo", seed_path)
+    seed_demo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(seed_demo)
+    seed_demo.main([])
 
 
 app = FastAPI(title="Duka-Yangu API", lifespan=lifespan)
@@ -98,15 +124,46 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 # Client IP -> timestamps of recent GET /api/p/{token} hits, pruned on use.
 _rate_limit_hits: dict[str, list[datetime]] = {}
 
+# Per-endpoint per-IP limits: key -> (max requests, window seconds).
+RATE_LIMITS = {
+    "entry": (20, 60),
+    "transcribe": (10, 60),
+    "explain": (10, 60),
+    "passports": (10, 60),
+}
+
+# (endpoint key, client IP) -> timestamps of recent hits, pruned on use.
+_api_rate_limit_hits: dict[tuple[str, str], list[datetime]] = {}
+
+# Global daily budget shared by all Spark and voice calls. The counter
+# lives in SQLite (usage_counters) so it survives restarts. Overridable
+# with DUKA_DAILY_AI_CAP; the Credit tab never 429s (see credit_explain).
+DAILY_AI_COUNTER = "ai_calls"
+DAILY_CAP_DEFAULT = 400
+DAILY_CAP_MESSAGE = "Demo limit reached for today, please try again tomorrow"
+
+# Built frontend bundle. Served as static files when present (production);
+# absent during local development, where Vite serves the frontend instead.
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
 
 def _utcnow() -> datetime:
     """Current UTC time. Monkeypatchable so tests can control the clock."""
     return datetime.now(timezone.utc)
 
 
-def _client_ip(request: Request) -> str:
-    if request.client is not None:
-        return request.client.host
+def _client_ip(request: Request | None) -> str:
+    """Real client IP behind Modal's proxy.
+
+    Modal's docs ("Client IP address" under Web Functions) give exactly
+    this: the proxy delivers the real client address as request.client.host.
+    Proxy headers such as X-Forwarded-For are never trusted here, since a
+    client can forge them.
+    """
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None)
+    if host:
+        return host
     return "unknown"
 
 
@@ -116,6 +173,94 @@ def _rate_limited(ip: str, now: datetime) -> bool:
     hits.append(now)
     _rate_limit_hits[ip] = hits
     return len(hits) > RATE_LIMIT_MAX_REQUESTS
+
+
+def _check_rate_limited(key: str, ip: str, now: datetime) -> bool:
+    """Per-endpoint per-IP sliding-window check. True when over the limit."""
+    limit, window = RATE_LIMITS[key]
+    cutoff = now - timedelta(seconds=window)
+    slot = (key, ip)
+    hits = [hit for hit in _api_rate_limit_hits.get(slot, []) if hit > cutoff]
+    hits.append(now)
+    _api_rate_limit_hits[slot] = hits
+    return len(hits) > limit
+
+
+def _guard(key: str, request: Request | None, now: datetime) -> None:
+    """Enforce the per-IP rate limit for served HTTP traffic.
+
+    request is None only for in-process (test) calls, which bypass the
+    HTTP layer and are never rate limited.
+    """
+    if request is None:
+        return
+    if _check_rate_limited(key, _client_ip(request), now):
+        raise HTTPException(
+            status_code=429, detail="Too many requests. Try again in a minute."
+        )
+
+
+def _daily_ai_cap() -> int:
+    try:
+        return max(0, int(os.getenv("DUKA_DAILY_AI_CAP", str(DAILY_CAP_DEFAULT))))
+    except ValueError:
+        return DAILY_CAP_DEFAULT
+
+
+def _try_consume_ai_call(conn, now: datetime) -> bool:
+    """Consume one AI call from today's shared budget. False when exhausted.
+
+    The caller must already hold a connection; the increment commits with
+    the surrounding transaction.
+    """
+    day = now.date().isoformat()
+    row = conn.execute(
+        "SELECT count FROM usage_counters WHERE day = ? AND name = ?",
+        (day, DAILY_AI_COUNTER),
+    ).fetchone()
+    used = row["count"] if row is not None else 0
+    if used >= _daily_ai_cap():
+        return False
+    conn.execute(
+        "INSERT INTO usage_counters (day, name, count) VALUES (?, ?, 1)"
+        " ON CONFLICT(day, name) DO UPDATE SET count = count + 1",
+        (day, DAILY_AI_COUNTER),
+    )
+    return True
+
+
+def _charge_ai_call(request: Request | None, now: datetime) -> None:
+    """Charge one Spark/voice call, or raise the friendly 429 when capped.
+
+    Skipped when request is None (in-process test calls bypass the HTTP
+    layer, so they neither consume budget nor touch the database here).
+    """
+    if request is None:
+        return
+    with get_connection() as conn:
+        if not _try_consume_ai_call(conn, now):
+            raise HTTPException(status_code=429, detail=DAILY_CAP_MESSAGE)
+
+
+def _cached_explanation(conn, shop_id: int, score, as_of: str) -> dict | None:
+    row = conn.execute(
+        "SELECT text, source FROM explain_cache"
+        " WHERE shop_id = ? AND score = ? AND as_of = ?",
+        (shop_id, score, as_of),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"text": row["text"], "source": row["source"]}
+
+
+def _store_explanation(conn, shop_id: int, score, as_of: str,
+                       text: str, source: str, now: str) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO explain_cache"
+        " (shop_id, score, as_of, text, source, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (shop_id, score, as_of, text, source, now),
+    )
 
 
 def _passport_status(row, now: datetime) -> str:
@@ -169,11 +314,14 @@ def _entry_from_row(row) -> dict:
 
 
 @app.post("/api/entry")
-def create_entry(payload: EntryIn):
+def create_entry(payload: EntryIn, request: Request = None):
     """Parse text into a transaction draft. Saved with confirmed=0, never confirmed here."""
     text = payload.text.strip()
     if not text:
         raise HTTPException(status_code=422, detail="text must not be empty")
+    now_for_guards = _utcnow()
+    _guard("entry", request, now_for_guards)
+    _charge_ai_call(request, now_for_guards)
     try:
         parsed = parse_entry(text)
     except RuntimeError as exc:
@@ -303,13 +451,16 @@ def _validate_confirm_edits(payload: ConfirmIn) -> dict:
 
 
 @app.post("/api/transcribe")
-async def transcribe_entry(audio: UploadFile = File(...)):
+async def transcribe_entry(
+    audio: UploadFile = File(...), request: Request = None
+):
     """Transcribe a short voice recording; return {"text": "..."}.
 
     The upload is kept in memory only: it is never written to disk, the
     database, or logs. 413 when the clip is too large or too long, 502
     when transcription itself fails.
     """
+    _guard("transcribe", request, _utcnow())
     data = await audio.read(MAX_AUDIO_BYTES + 1)
     if len(data) > MAX_AUDIO_BYTES:
         raise HTTPException(
@@ -324,6 +475,7 @@ async def transcribe_entry(audio: UploadFile = File(...)):
             status_code=413,
             detail="Recording is longer than 60 seconds. Record a shorter clip.",
         )
+    _charge_ai_call(request, _utcnow())
     try:
         text = transcribe_audio(data, audio.filename or "recording.wav")
     except RuntimeError as exc:
@@ -384,13 +536,23 @@ def dashboard_weekly(shop_id: int | None = None, as_of: str | None = None):
 
 
 @app.get("/api/credit/explain")
-def credit_explain(shop_id: int | None = None, as_of: str | None = None):
+def credit_explain(
+    shop_id: int | None = None,
+    as_of: str | None = None,
+    request: Request = None,
+):
     """Plain-English credit explanation. Written by Spark, checked in Python.
 
     Below a scored summary this never calls Spark: a fixed friendly
     message is returned instead. Spark's reply is number-checked and any
     failure falls back to a deterministic template; see services/explain.
+    Scored explanations are cached per (shop, score, as_of) in SQLite, so
+    repeated opens never call Spark again. When the daily AI budget is
+    exhausted this still returns 200 with the template explanation, so the
+    Credit tab never breaks.
     """
+    now_for_guards = _utcnow()
+    _guard("explain", request, now_for_guards)
     explicit = _parse_as_of(as_of)
     with get_connection() as conn:
         row = _resolve_shop_row(conn, shop_id)
@@ -402,10 +564,33 @@ def credit_explain(shop_id: int | None = None, as_of: str | None = None):
         day = (
             explicit
             if explicit is not None
-            else resolve_as_of(row["name"], items, _utcnow().date())
+            else resolve_as_of(row["name"], items, now_for_guards.date())
         )
     result = assess_shop(items, day)
-    return {"as_of": day.isoformat(), **explain_credit(result)}
+    if result.get("status") != "scored":
+        return {"as_of": day.isoformat(), **explain_credit(result)}
+    day_iso = day.isoformat()
+    with get_connection() as conn:
+        cached = _cached_explanation(conn, row["id"], result["score"], day_iso)
+        if cached is not None:
+            return {"as_of": day_iso, **cached}
+        if request is not None and not _try_consume_ai_call(conn, now_for_guards):
+            return {
+                "as_of": day_iso,
+                "text": template_explanation(result),
+                "source": "template",
+            }
+        explanation = explain_credit(result)
+        _store_explanation(
+            conn,
+            row["id"],
+            result["score"],
+            day_iso,
+            explanation["text"],
+            explanation.get("source", "template"),
+            now_for_guards.isoformat(),
+        )
+    return {"as_of": day_iso, **explanation}
 
 
 @app.get("/api/ledger")
@@ -432,12 +617,13 @@ def read_ledger(shop_id: int | None = None):
 
 
 @app.post("/api/passports")
-def create_passport(payload: PassportCreateIn):
+def create_passport(payload: PassportCreateIn, request: Request = None):
     """Share a snapshot of the shop's credit summary with one lender.
 
     The raw share token is returned exactly once, here. Only its
     SHA-256 hash is stored; it never appears in logs or audit rows.
     """
+    _guard("passports", request, _utcnow())
     lender_name = payload.lender_name.strip()
     if not 1 <= len(lender_name) <= 60:
         raise HTTPException(
@@ -599,3 +785,36 @@ def view_passport(token: str, request: Request):
         )
         snapshot["expires_at"] = row["expires_at"]
     return snapshot
+
+
+@app.get("/api/health")
+def health():
+    """Liveness probe. Always 200 with {"status": "ok"}."""
+    return {"status": "ok"}
+
+
+@app.get("/{path:path}")
+def serve_frontend(path: str):
+    """Serve the built frontend, with an SPA fallback to index.html.
+
+    Registered after every /api route, so /api keeps priority. Any GET
+    that is not an API route serves the matching bundle file when one
+    exists, otherwise index.html, so /p/<token> opens directly and
+    reloads work. Unknown /api paths still 404. Only active when the
+    frontend has been built (frontend/dist exists); local Vite
+    development is unaffected.
+    """
+    if path == "api" or path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found.")
+    root = FRONTEND_DIST.resolve() if FRONTEND_DIST.is_dir() else None
+    if root is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    target = (root / path).resolve() if path else root
+    if target != root and root not in target.parents:
+        raise HTTPException(status_code=404, detail="Not found.")
+    if path and target.is_file():
+        return FileResponse(str(target))
+    index = root / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404, detail="Not found.")
+    return FileResponse(str(index))
