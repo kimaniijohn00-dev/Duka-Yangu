@@ -6,8 +6,13 @@ Modal docs only:
 - Web endpoint: ``@modal.asgi_app()`` on a function returning the FastAPI
   app (docs: "Web Functions" -> "Serving ASGI and WSGI apps" -> "ASGI apps").
 - Image: ``modal.Image.debian_slim(python_version="3.12")`` with the
-  packages from ``backend/requirements.txt``, plus the backend source and
+  ``PYTHON_PACKAGES`` list below (kept identical to
+  ``backend/requirements.txt`` by tests), plus the backend source and
   the built frontend bundle ``frontend/dist`` (docs: "Images").
+- Import safety: importing this file never reads local project files.
+  The only local touches (the ``frontend/dist`` presence check) run
+  behind ``modal.is_local()``, so a container-side re-import cannot fail
+  on missing local paths.
 - SQLite persistence: the ``duka-yangu-data`` Volume mounted at ``/data``,
   with ``DUKA_DB_PATH=/data/duka.db`` (docs: "Volumes" ->
   ``Volume.from_name`` + ``volumes={...}``). Per the docs' "Volume commits
@@ -31,21 +36,26 @@ REPO_ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
-if not FRONTEND_DIST.is_dir():
+if modal.is_local() and not FRONTEND_DIST.is_dir():
     raise RuntimeError(
         "frontend/dist is missing. Build it first with `npm run build` "
         "inside frontend/ (see DEPLOY.md), then redeploy."
     )
 
 
-def _requirements() -> list[str]:
-    """The packages from backend/requirements.txt, in file order."""
-    packages = []
-    for line in (BACKEND_DIR / "requirements.txt").read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            packages.append(line)
-    return packages
+# Plain pinned list: no file reads at import time, so importing this
+# module inside the container (where local project files are absent)
+# cannot raise FileNotFoundError. Kept identical to
+# backend/requirements.txt by backend/tests/test_modal_app.py.
+PYTHON_PACKAGES = [
+    "openai",
+    "python-dotenv",
+    "fastapi",
+    "uvicorn",
+    "pytest",
+    "httpx",
+    "python-multipart",
+]
 
 
 app = modal.App("duka-yangu")
@@ -54,8 +64,8 @@ data_volume = modal.Volume.from_name("duka-yangu-data", create_if_missing=True)
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install(*_requirements())
-    .env({"DUKA_DB_PATH": "/data/duka.db"})
+    .pip_install(*PYTHON_PACKAGES)
+    .env({"DUKA_DB_PATH": "/data/duka.db", "DUKA_STATIC_DIR": "/app/frontend/dist"})
     .add_local_dir(str(BACKEND_DIR), remote_path="/app/backend")
     .add_local_dir(str(FRONTEND_DIST), remote_path="/app/frontend/dist")
 )

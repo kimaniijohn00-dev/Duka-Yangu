@@ -144,7 +144,12 @@ DAILY_CAP_MESSAGE = "Demo limit reached for today, please try again tomorrow"
 
 # Built frontend bundle. Served as static files when present (production);
 # absent during local development, where Vite serves the frontend instead.
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+# On Modal the image sets DUKA_STATIC_DIR to the bundle's absolute path.
+def _frontend_dist() -> Path:
+    override = os.getenv("DUKA_STATIC_DIR")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 def _utcnow() -> datetime:
@@ -806,7 +811,8 @@ def serve_frontend(path: str):
     """
     if path == "api" or path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found.")
-    root = FRONTEND_DIST.resolve() if FRONTEND_DIST.is_dir() else None
+    dist = _frontend_dist()
+    root = dist.resolve() if dist.is_dir() else None
     if root is None:
         raise HTTPException(status_code=404, detail="Not found.")
     target = (root / path).resolve() if path else root

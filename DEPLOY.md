@@ -42,6 +42,10 @@ npm run build
 ```
 
 `modal_app.py` refuses to build the image when `frontend/dist` is missing.
+That check runs only on your machine (`modal.is_local()`), never inside
+the container. The image places the bundle at `/app/frontend/dist` and
+points the backend at it via the `DUKA_STATIC_DIR` env var, so the API
+(and `/api/health`) works even if the static folder were absent.
 
 ## 4. Deploy
 

@@ -274,7 +274,7 @@ def make_dist(tmp_path):
 
 def test_static_fallback_serves_files_and_index(isolated_db, monkeypatch, tmp_path):
     dist = make_dist(tmp_path)
-    monkeypatch.setattr(appmod, "FRONTEND_DIST", dist)
+    monkeypatch.setattr(appmod, "_frontend_dist", lambda: dist)
 
     assert appmod.serve_frontend("").path == str(dist / "index.html")
     assert appmod.serve_frontend("p/abc123").path == str(dist / "index.html")
@@ -290,9 +290,33 @@ def test_static_fallback_serves_files_and_index(isolated_db, monkeypatch, tmp_pa
 
 
 def test_static_fallback_404_without_build(isolated_db, monkeypatch, tmp_path):
-    monkeypatch.setattr(appmod, "FRONTEND_DIST", tmp_path / "no-dist")
+    monkeypatch.setattr(appmod, "_frontend_dist", lambda: tmp_path / "no-dist")
     with pytest.raises(HTTPException) as exc_info:
         appmod.serve_frontend("p/abc123")
+    assert exc_info.value.status_code == 404
+
+
+def test_static_dir_env_override(isolated_db, monkeypatch, tmp_path):
+    dist = make_dist(tmp_path)
+    monkeypatch.setenv("DUKA_STATIC_DIR", str(dist))
+    assert appmod._frontend_dist() == dist
+    assert appmod.serve_frontend("p/abc123").path == str(dist / "index.html")
+
+
+def test_static_dir_defaults_locally(isolated_db, monkeypatch):
+    monkeypatch.delenv("DUKA_STATIC_DIR", raising=False)
+    assert appmod._frontend_dist() == (
+        appmod.Path(__file__).resolve().parent.parent.parent
+        / "frontend"
+        / "dist"
+    )
+
+
+def test_health_works_without_static_folder(isolated_db, monkeypatch, tmp_path):
+    monkeypatch.setattr(appmod, "_frontend_dist", lambda: tmp_path / "no-dist")
+    assert appmod.health() == {"status": "ok"}
+    with pytest.raises(HTTPException) as exc_info:
+        appmod.serve_frontend("")
     assert exc_info.value.status_code == 404
 
 
