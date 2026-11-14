@@ -32,10 +32,19 @@ def isolated_db(tmp_path, monkeypatch):
 
 
 def make_owner(monkeypatch, phone="0711111111"):
-    return helpers.register_account(
+    account = helpers.register_account(
         monkeypatch, phone=phone, pin="482917",
-        shop_name=creditmod.DEMO_SHOP_NAME, ip="10.20.0.1",
+        shop_name="Passport Duka", ip="10.20.0.1",
     )
+    # Snapshots label the demo shop by name, but registration rightly
+    # refuses the demo name; rename the shop after registering instead.
+    with db.get_connection() as conn:
+        conn.execute(
+            "UPDATE shops SET name = ? WHERE id = ?",
+            (creditmod.DEMO_SHOP_NAME, account["shop_id"]),
+        )
+    account["shop_name"] = creditmod.DEMO_SHOP_NAME
+    return account
 
 
 def authed_get(owner, path):

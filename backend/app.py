@@ -545,7 +545,7 @@ def credit_summary(
         day = (
             explicit
             if explicit is not None
-            else resolve_as_of(row["name"], items, _utcnow().date())
+            else resolve_as_of(bool(row["is_demo"]), items, _utcnow().date())
         )
     result = assess_shop(items, day)
     return {
@@ -579,7 +579,7 @@ def dashboard_weekly(
         day = (
             explicit
             if explicit is not None
-            else resolve_as_of(row["name"], items, _utcnow().date())
+            else resolve_as_of(bool(row["is_demo"]), items, _utcnow().date())
         )
     return {
         "shop_id": row["id"],
@@ -619,7 +619,7 @@ def credit_explain(
         day = (
             explicit
             if explicit is not None
-            else resolve_as_of(row["name"], items, now_for_guards.date())
+            else resolve_as_of(bool(row["is_demo"]), items, now_for_guards.date())
         )
     result = assess_shop(items, day)
     if result.get("status") != "scored":
@@ -710,7 +710,7 @@ def create_passport(payload: PassportCreateIn, request: Request):
         snapshot = build_snapshot(
             shop["name"],
             items,
-            resolve_as_of(shop["name"], items, now.date()),
+            resolve_as_of(bool(shop["is_demo"]), items, now.date()),
             scope,
             now.isoformat(),
         )

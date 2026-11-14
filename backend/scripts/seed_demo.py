@@ -111,18 +111,26 @@ def _iso(day, hour, minute=0):
 def _get_shop(conn):
     row = conn.execute("SELECT * FROM shops WHERE name = ?", (SHOP_NAME,)).fetchone()
     if row is not None:
+        # Never create a second demo shop; make sure the one row the
+        # seeder owns carries the public-demo flag (older seeds lack it).
+        if not row["is_demo"]:
+            conn.execute(
+                "UPDATE shops SET is_demo = 1 WHERE id = ?", (row["id"],)
+            )
         return row["id"]
     now = _iso(date.today(), 8)
     try:
         conn.execute(
-            "INSERT INTO shops (id, name, location, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO shops (id, name, location, is_demo, created_at)"
+            " VALUES (?, ?, ?, 1, ?)",
             (DEMO_SHOP_ID, SHOP_NAME, SHOP_LOCATION, now),
         )
         return DEMO_SHOP_ID
     except sqlite3.IntegrityError:
         # Id already taken by another shop: fall back to autoincrement.
         cur = conn.execute(
-            "INSERT INTO shops (name, location, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO shops (name, location, is_demo, created_at)"
+            " VALUES (?, ?, 1, ?)",
             (SHOP_NAME, SHOP_LOCATION, now),
         )
         return cur.lastrowid

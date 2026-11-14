@@ -119,16 +119,14 @@ def test_resolve_as_of_pins_demo_to_latest_confirmed():
         tx(latest),
         tx(today, confirmed=0),  # drafts never move the pin
     ]
-    assert (
-        creditmod.resolve_as_of(creditmod.DEMO_SHOP_NAME, txns, today) == latest
-    )
+    assert creditmod.resolve_as_of(True, txns, today) == latest
 
 
 def test_resolve_as_of_leaves_other_shops_alone():
     today = date.today()
     txns = [tx(today - timedelta(days=20))]
-    assert creditmod.resolve_as_of("Amina's Duka", txns, today) == today
-    assert creditmod.resolve_as_of(creditmod.DEMO_SHOP_NAME, [], today) == today
+    assert creditmod.resolve_as_of(False, txns, today) == today
+    assert creditmod.resolve_as_of(True, [], today) == today
 
 
 def test_demo_score_identical_when_clock_moves(monkeypatch, tmp_path):

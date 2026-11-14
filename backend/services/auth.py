@@ -29,6 +29,7 @@ from fastapi import HTTPException, Request, Response
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from db import get_connection
+from services.credit import DEMO_SHOP_NAME
 
 SESSION_COOKIE = "duka_session"
 SESSION_DAYS = 30
@@ -418,6 +419,10 @@ def register(phone: str, pin: str, shop_name: str, invite_code: str,
     if not 1 <= len(cleaned_name) <= 60:
         raise HTTPException(
             status_code=422, detail="shop_name must be 1-60 characters"
+        )
+    if cleaned_name.casefold() == DEMO_SHOP_NAME.casefold():
+        raise HTTPException(
+            status_code=422, detail="That name is reserved for the demo shop."
         )
     with get_connection() as conn:
         existing = conn.execute(
