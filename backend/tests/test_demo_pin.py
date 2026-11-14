@@ -9,8 +9,35 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 
 import app as appmod
+import auth_routes
 import db
+import helpers
+from fastapi import Response
+from services import auth as authmod
 from services import credit as creditmod
+
+
+def login_as_owner(monkeypatch, shop_id, phone):
+    """Create a user for a pre-seeded shop and log in."""
+    helpers.setup_auth_env(monkeypatch)
+    pin = "482917"
+    phone = authmod.normalize_phone(phone)
+    assert phone is not None
+    with db.get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO users (shop_id, phone, pin_hash, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (shop_id, phone, authmod.hash_pin(pin), "2026-11-14T00:00:00+00:00"),
+        )
+        user_id = cur.lastrowid
+    req = helpers.make_request(
+        "/api/auth/login", method="POST", origin="http://testserver")
+    resp = Response()
+    out = auth_routes.login(
+        auth_routes.LoginIn(phone=phone, pin=pin), req, resp)
+    cookie = resp.headers["set-cookie"].split(";")[0]
+    return {"user_id": user_id, "shop_id": shop_id, "cookie": cookie,
+            "phone": phone}
 
 FROZEN_END_OFFSET = 20
 
@@ -19,17 +46,21 @@ def use_temp_db(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "pin.db")
     db.init_db()
     appmod._rate_limit_hits.clear()
+    appmod._api_rate_limit_hits.clear()
 
 
-def seed_shop(name, end_offset, days=40):
+def seed_shop(name, end_offset, days=40, shop_id=None):
     """Shop with `days` x 3 confirmed txns ending `end_offset` days ago."""
     today = date.today()
     with db.get_connection() as conn:
-        cur = conn.execute(
-            "INSERT INTO shops (name, location, created_at) VALUES (?, ?, ?)",
-            (name, "test", today.isoformat()),
-        )
-        shop_id = cur.lastrowid
+        if shop_id is None:
+            cur = conn.execute(
+                "INSERT INTO shops (name, location, is_demo, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (name, "test", 1 if name == creditmod.DEMO_SHOP_NAME else 0,
+                 today.isoformat()),
+            )
+            shop_id = cur.lastrowid
         rows = []
         for offset in range(end_offset, end_offset + days):
             day = (today - timedelta(days=offset)).isoformat()
@@ -120,15 +151,23 @@ def test_demo_score_identical_when_clock_moves(monkeypatch, tmp_path):
 
 def test_non_demo_window_follows_real_date(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
-    shop_id, _ = seed_shop("Amina's Duka", 0)
+    account = helpers.register_account(
+        monkeypatch, phone="0711111111", pin="482917",
+        shop_name="Amina's Duka", ip="10.19.0.1",
+    )
+    shop_id, _ = seed_shop("Amina's Duka", 0, shop_id=account["shop_id"])
 
-    before = appmod.credit_summary(shop_id=shop_id)
+    def summary():
+        return appmod.credit_summary(
+            request=helpers.authed("/api/credit/summary", account))
+
+    before = summary()
     assert before["as_of"] == date.today().isoformat()
 
     move_clock(monkeypatch, 10)
     moved = appmod._utcnow().date()
 
-    after = appmod.credit_summary(shop_id=shop_id)
+    after = summary()
     assert after["as_of"] == moved.isoformat()
     expected = creditmod.assess_shop(ledger_for(shop_id), moved)
     assert after["score"] == expected["score"]
@@ -137,10 +176,10 @@ def test_non_demo_window_follows_real_date(monkeypatch, tmp_path):
 
 def test_explicit_as_of_still_wins_for_demo(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
-    shop_id, latest = seed_shop(creditmod.DEMO_SHOP_NAME, FROZEN_END_OFFSET)
+    _, latest = seed_shop(creditmod.DEMO_SHOP_NAME, FROZEN_END_OFFSET)
     custom = (latest - timedelta(days=10)).isoformat()
 
-    result = appmod.credit_summary(shop_id=shop_id, as_of=custom)
+    result = appmod.credit_summary(as_of=custom)
 
     assert result["as_of"] == custom
 
@@ -164,12 +203,14 @@ def test_explain_uses_pinned_date(monkeypatch, tmp_path):
 
 def test_passport_snapshot_uses_pinned_date(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
-    seed_shop(creditmod.DEMO_SHOP_NAME, FROZEN_END_OFFSET)
+    shop_id, _ = seed_shop(creditmod.DEMO_SHOP_NAME, FROZEN_END_OFFSET)
     pinned = (date.today() - timedelta(days=FROZEN_END_OFFSET)).isoformat()
+    owner = login_as_owner(monkeypatch, shop_id, "0711111111")
 
     def snapshot_of(lender):
         created = appmod.create_passport(
-            appmod.PassportCreateIn(lender_name=lender, expires_in_days=7)
+            appmod.PassportCreateIn(lender_name=lender, expires_in_days=7),
+            helpers.authed("/api/passports", owner, method="POST"),
         )
         return appmod.view_passport(created["token"], fake_request())
 

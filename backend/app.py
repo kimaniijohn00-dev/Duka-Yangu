@@ -7,13 +7,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from auth_routes import router as auth_router
 from db import GLOBAL_USAGE_SHOP_ID, get_connection, init_db
-from services.auth import client_ip as _client_ip
+from services.auth import SESSION_COOKIE, _check_origin, client_ip as _client_ip
+from services.auth import require_user
 from services.credit import (
     DEMO_SHOP_NAME,
     assess_shop,
@@ -31,18 +32,27 @@ from services.passport import (
 from services.spark import parse_entry
 
 
-def _resolve_shop_row(conn, shop_id):
-    """Fetch one shop: explicit id, or the demo shop when omitted."""
-    if shop_id is None:
-        row = conn.execute(
-            "SELECT * FROM shops WHERE name = ?", (DEMO_SHOP_NAME,)
-        ).fetchone()
-        if row is None:
-            raise HTTPException(
-                status_code=404, detail="Demo shop not found; pass shop_id."
-            )
-        return row
-    row = conn.execute("SELECT * FROM shops WHERE id = ?", (shop_id,)).fetchone()
+def _demo_shop(conn):
+    """The public demo shop, marked by its is_demo flag. 404 when absent."""
+    row = conn.execute("SELECT * FROM shops WHERE is_demo = 1").fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Demo shop not found.")
+    return row
+
+
+def _read_shop(conn, request: Request | None, view: str | None):
+    """Shop for the credit trio: session shop when logged in, else demo.
+
+    A logged-in caller passes ?view=demo to see the demo instead of
+    their own shop. A present-but-invalid session cookie is a 401, never
+    a silent fallback to demo.
+    """
+    user = None
+    if request is not None and request.cookies.get(SESSION_COOKIE):
+        user = require_user(request)
+    if view == "demo" or user is None:
+        return _demo_shop(conn)
+    row = conn.execute("SELECT * FROM shops WHERE id = ?", (user["shop_id"],)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Shop not found.")
     return row
@@ -104,7 +114,6 @@ app.include_router(auth_router)
 
 class EntryIn(BaseModel):
     text: str
-    shop_id: int | None = None
 
 
 class ConfirmIn(BaseModel):
@@ -118,7 +127,6 @@ class PassportCreateIn(BaseModel):
     lender_name: str
     expires_in_days: int
     sections: list[str] | None = None
-    shop_id: int | None = None
 
 
 RATE_LIMIT_MAX_REQUESTS = 30
@@ -138,11 +146,14 @@ RATE_LIMITS = {
 # (endpoint key, client IP) -> timestamps of recent hits, pruned on use.
 _api_rate_limit_hits: dict[tuple[str, str], list[datetime]] = {}
 
-# Global daily budget shared by all Spark and voice calls. The counter
-# lives in SQLite (usage_counters) so it survives restarts. Overridable
-# with DUKA_DAILY_AI_CAP; the Credit tab never 429s (see credit_explain).
+# Daily AI budgets. The global cap is shared by every shop; each shop
+# also gets its own smaller daily quota so one shop cannot burn
+# everyone's budget. Counters live in SQLite (usage_counters) so they
+# survive restarts. Overridable with DUKA_DAILY_AI_CAP and
+# DUKA_SHOP_AI_CAP; the Credit tab never 429s (see credit_explain).
 DAILY_AI_COUNTER = "ai_calls"
 DAILY_CAP_DEFAULT = 400
+SHOP_CAP_DEFAULT = 60
 DAILY_CAP_MESSAGE = "Demo limit reached for today, please try again tomorrow"
 
 # Built frontend bundle. Served as static files when present (production);
@@ -200,30 +211,46 @@ def _daily_ai_cap() -> int:
         return DAILY_CAP_DEFAULT
 
 
-def _try_consume_ai_call(conn, now: datetime) -> bool:
-    """Consume one AI call from today's shared budget. False when exhausted.
+def _daily_shop_cap() -> int:
+    try:
+        return max(0, int(os.getenv("DUKA_SHOP_AI_CAP", str(SHOP_CAP_DEFAULT))))
+    except ValueError:
+        return SHOP_CAP_DEFAULT
 
-    The caller must already hold a connection; the increment commits with
+
+def _try_consume_ai_call(conn, now: datetime, shop_id: int) -> bool:
+    """Consume one AI call from today's global budget and the shop quota.
+
+    False when either is exhausted, in which case nothing is consumed.
+    The caller must already hold a connection; the increments commit with
     the surrounding transaction.
     """
     day = now.date().isoformat()
-    row = conn.execute(
+    global_row = conn.execute(
         "SELECT count FROM usage_counters WHERE day = ? AND name = ? AND shop_id = ?",
         (day, DAILY_AI_COUNTER, GLOBAL_USAGE_SHOP_ID),
     ).fetchone()
-    used = row["count"] if row is not None else 0
-    if used >= _daily_ai_cap():
+    used_global = global_row["count"] if global_row is not None else 0
+    if used_global >= _daily_ai_cap():
         return False
-    conn.execute(
-        "INSERT INTO usage_counters (day, name, shop_id, count) VALUES (?, ?, ?, 1)"
-        " ON CONFLICT(day, name, shop_id) DO UPDATE SET count = count + 1",
-        (day, DAILY_AI_COUNTER, GLOBAL_USAGE_SHOP_ID),
-    )
+    shop_row = conn.execute(
+        "SELECT count FROM usage_counters WHERE day = ? AND name = ? AND shop_id = ?",
+        (day, DAILY_AI_COUNTER, shop_id),
+    ).fetchone()
+    used_shop = shop_row["count"] if shop_row is not None else 0
+    if used_shop >= _daily_shop_cap():
+        return False
+    for key in (GLOBAL_USAGE_SHOP_ID, shop_id):
+        conn.execute(
+            "INSERT INTO usage_counters (day, name, shop_id, count) VALUES (?, ?, ?, 1)"
+            " ON CONFLICT(day, name, shop_id) DO UPDATE SET count = count + 1",
+            (day, DAILY_AI_COUNTER, key),
+        )
     return True
 
 
-def _charge_ai_call(request: Request | None, now: datetime) -> None:
-    """Charge one Spark/voice call, or raise the friendly 429 when capped.
+def _charge_ai_call(request: Request | None, now: datetime, shop_id: int) -> None:
+    """Charge one Spark/voice call to both budgets, or raise 429 when capped.
 
     Skipped when request is None (in-process test calls bypass the HTTP
     layer, so they neither consume budget nor touch the database here).
@@ -231,7 +258,7 @@ def _charge_ai_call(request: Request | None, now: datetime) -> None:
     if request is None:
         return
     with get_connection() as conn:
-        if not _try_consume_ai_call(conn, now):
+        if not _try_consume_ai_call(conn, now, shop_id):
             raise HTTPException(status_code=429, detail=DAILY_CAP_MESSAGE)
 
 
@@ -281,11 +308,18 @@ def _passport_summary(conn, row, now: datetime) -> dict:
     }
 
 
-def _audit_passport(conn, action: str, passport_id: int, detail: str | None, now: str):
+def _audit_passport(
+    conn,
+    action: str,
+    passport_id: int,
+    detail: str | None,
+    now: str,
+    shop_id: int | None = None,
+):
     conn.execute(
-        "INSERT INTO audit_log (action, entity, entity_id, detail, created_at)"
-        " VALUES (?, 'passport', ?, ?, ?)",
-        (action, passport_id, detail, now),
+        "INSERT INTO audit_log (action, entity, entity_id, shop_id, detail, created_at)"
+        " VALUES (?, 'passport', ?, ?, ?, ?)",
+        (action, passport_id, shop_id, detail, now),
     )
 
 
@@ -306,15 +340,21 @@ def _entry_from_row(row) -> dict:
     }
 
 
-@app.post("/api/entry")
-def create_entry(payload: EntryIn, request: Request = None):
-    """Parse text into a transaction draft. Saved with confirmed=0, never confirmed here."""
+@app.post("/api/entry", dependencies=[Depends(require_user)])
+def create_entry(payload: EntryIn, request: Request):
+    """Parse text into a transaction draft. Saved with confirmed=0, never confirmed here.
+
+    Login required; the draft belongs to the caller's shop. The shop id
+    comes only from the session and can never be supplied by the caller.
+    """
+    user = require_user(request)
+    _check_origin(request)
     text = payload.text.strip()
     if not text:
         raise HTTPException(status_code=422, detail="text must not be empty")
     now_for_guards = _utcnow()
     _guard("entry", request, now_for_guards)
-    _charge_ai_call(request, now_for_guards)
+    _charge_ai_call(request, now_for_guards, user["shop_id"])
     try:
         parsed = parse_entry(text)
     except RuntimeError as exc:
@@ -328,7 +368,7 @@ def create_entry(payload: EntryIn, request: Request = None):
                 occurred_at, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'api', 0, ?, ?)""",
             (
-                payload.shop_id,
+                user["shop_id"],
                 parsed.get("type"),
                 parsed.get("item", ""),
                 parsed.get("quantity", 1),
@@ -342,13 +382,13 @@ def create_entry(payload: EntryIn, request: Request = None):
         )
         entry_id = cur.lastrowid
         conn.execute(
-            "INSERT INTO audit_log (action, entity, entity_id, detail, created_at)"
-            " VALUES ('parse', 'transaction', ?, ?, ?)",
-            (entry_id, text, now),
+            "INSERT INTO audit_log (action, entity, entity_id, shop_id, detail, created_at)"
+            " VALUES ('parse', 'transaction', ?, ?, ?, ?)",
+            (entry_id, user["shop_id"], text, now),
         )
     return {
         "id": entry_id,
-        "shop_id": payload.shop_id,
+        "shop_id": user["shop_id"],
         "type": parsed.get("type"),
         "item": parsed.get("item", ""),
         "quantity": parsed.get("quantity", 1),
@@ -362,18 +402,22 @@ def create_entry(payload: EntryIn, request: Request = None):
     }
 
 
-@app.post("/api/transactions/confirm")
-def confirm_transaction(payload: ConfirmIn):
+@app.post("/api/transactions/confirm", dependencies=[Depends(require_user)])
+def confirm_transaction(payload: ConfirmIn, request: Request):
     """Mark a draft entry confirmed, applying any edited fields first.
 
-    404 when missing, 409 when already confirmed, 422 when an edited
-    field is invalid. With only {id} it behaves exactly as before.
+    Login required. 404 when missing or owned by another shop (the two
+    are indistinguishable), 409 when already confirmed, 422 when an
+    edited field is invalid. With only {id} it behaves exactly as before.
     """
+    user = require_user(request)
+    _check_origin(request)
     edits = _validate_confirm_edits(payload)
     now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM transactions WHERE id = ?", (payload.id,)
+            "SELECT * FROM transactions WHERE id = ? AND shop_id = ?",
+            (payload.id, user["shop_id"]),
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="entry not found")
@@ -390,9 +434,9 @@ def confirm_transaction(payload: ConfirmIn):
             (*edits.values(), payload.id),
         )
         conn.execute(
-            "INSERT INTO audit_log (action, entity, entity_id, detail, created_at)"
-            " VALUES ('confirm', 'transaction', ?, ?, ?)",
-            (payload.id, row["raw_text"], now),
+            "INSERT INTO audit_log (action, entity, entity_id, shop_id, detail, created_at)"
+            " VALUES ('confirm', 'transaction', ?, ?, ?, ?)",
+            (payload.id, user["shop_id"], row["raw_text"], now),
         )
         if changed:
             detail = json.dumps(
@@ -402,9 +446,9 @@ def confirm_transaction(payload: ConfirmIn):
                 }
             )
             conn.execute(
-                "INSERT INTO audit_log (action, entity, entity_id, detail, created_at)"
-                " VALUES ('edit', 'transaction', ?, ?, ?)",
-                (payload.id, detail, now),
+                "INSERT INTO audit_log (action, entity, entity_id, shop_id, detail, created_at)"
+                " VALUES ('edit', 'transaction', ?, ?, ?, ?)",
+                (payload.id, user["shop_id"], detail, now),
             )
         updated = conn.execute(
             "SELECT * FROM transactions WHERE id = ?", (payload.id,)
@@ -443,16 +487,19 @@ def _validate_confirm_edits(payload: ConfirmIn) -> dict:
     return edits
 
 
-@app.post("/api/transcribe")
+@app.post("/api/transcribe", dependencies=[Depends(require_user)])
 async def transcribe_entry(
     audio: UploadFile = File(...), request: Request = None
 ):
     """Transcribe a short voice recording; return {"text": "..."}.
 
-    The upload is kept in memory only: it is never written to disk, the
+    Login required; the call is charged to the caller's shop quota. The
+    upload is kept in memory only: it is never written to disk, the
     database, or logs. 413 when the clip is too large or too long, 502
     when transcription itself fails.
     """
+    user = require_user(request)
+    _check_origin(request)
     _guard("transcribe", request, _utcnow())
     data = await audio.read(MAX_AUDIO_BYTES + 1)
     if len(data) > MAX_AUDIO_BYTES:
@@ -468,7 +515,7 @@ async def transcribe_entry(
             status_code=413,
             detail="Recording is longer than 60 seconds. Record a shorter clip.",
         )
-    _charge_ai_call(request, _utcnow())
+    _charge_ai_call(request, _utcnow(), user["shop_id"])
     try:
         text = transcribe_audio(data, audio.filename or "recording.wav")
     except RuntimeError as exc:
@@ -477,11 +524,19 @@ async def transcribe_entry(
 
 
 @app.get("/api/credit/summary")
-def credit_summary(shop_id: int | None = None, as_of: str | None = None):
-    """Credit-readiness estimate for one shop. An estimate, never a decision."""
+def credit_summary(
+    as_of: str | None = None,
+    view: str | None = None,
+    request: Request = None,
+):
+    """Credit-readiness estimate for one shop. An estimate, never a decision.
+
+    Logged-in callers see their own shop (?view=demo shows the demo
+    instead); anonymous callers see the public demo shop read-only.
+    """
     explicit = _parse_as_of(as_of)
     with get_connection() as conn:
-        row = _resolve_shop_row(conn, shop_id)
+        row = _read_shop(conn, request, view)
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (row["id"],),
@@ -502,14 +557,20 @@ def credit_summary(shop_id: int | None = None, as_of: str | None = None):
 
 
 @app.get("/api/dashboard/weekly")
-def dashboard_weekly(shop_id: int | None = None, as_of: str | None = None):
+def dashboard_weekly(
+    as_of: str | None = None,
+    view: str | None = None,
+    request: Request = None,
+):
     """Last 8 weeks of confirmed sales, purchases and expenses.
 
-    Oldest week first, integer KES. Defaults to the demo shop.
+    Oldest week first, integer KES. Logged-in callers see their own
+    shop (?view=demo shows the demo instead); anonymous callers see the
+    public demo shop read-only.
     """
     explicit = _parse_as_of(as_of)
     with get_connection() as conn:
-        row = _resolve_shop_row(conn, shop_id)
+        row = _read_shop(conn, request, view)
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (row["id"],),
@@ -530,8 +591,8 @@ def dashboard_weekly(shop_id: int | None = None, as_of: str | None = None):
 
 @app.get("/api/credit/explain")
 def credit_explain(
-    shop_id: int | None = None,
     as_of: str | None = None,
+    view: str | None = None,
     request: Request = None,
 ):
     """Plain-English credit explanation. Written by Spark, checked in Python.
@@ -540,15 +601,16 @@ def credit_explain(
     message is returned instead. Spark's reply is number-checked and any
     failure falls back to a deterministic template; see services/explain.
     Scored explanations are cached per (shop, score, as_of) in SQLite, so
-    repeated opens never call Spark again. When the daily AI budget is
+    repeated opens never call Spark again. When the AI budgets are
     exhausted this still returns 200 with the template explanation, so the
-    Credit tab never breaks.
+    Credit tab never breaks. Logged-in callers use their own shop
+    (?view=demo shows the demo); anonymous callers use the public demo.
     """
     now_for_guards = _utcnow()
     _guard("explain", request, now_for_guards)
     explicit = _parse_as_of(as_of)
     with get_connection() as conn:
-        row = _resolve_shop_row(conn, shop_id)
+        row = _read_shop(conn, request, view)
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (row["id"],),
@@ -567,7 +629,9 @@ def credit_explain(
         cached = _cached_explanation(conn, row["id"], result["score"], day_iso)
         if cached is not None:
             return {"as_of": day_iso, **cached}
-        if request is not None and not _try_consume_ai_call(conn, now_for_guards):
+        if request is not None and not _try_consume_ai_call(
+            conn, now_for_guards, row["id"]
+        ):
             return {
                 "as_of": day_iso,
                 "text": template_explanation(result),
@@ -586,36 +650,33 @@ def credit_explain(
     return {"as_of": day_iso, **explanation}
 
 
-@app.get("/api/ledger")
-def read_ledger(shop_id: int | None = None):
-    """Return confirmed entries only, newest first. Drafts never appear.
+@app.get("/api/ledger", dependencies=[Depends(require_user)])
+def read_ledger(request: Request):
+    """Return the caller's confirmed entries only, newest first.
 
-    Without shop_id this returns the shopkeeper's own entries
-    (shop_id IS NULL), so seeded demo data never mixes in. Pass an
-    explicit shop_id for that shop's dashboard slice instead.
+    Drafts never appear, and neither do other shops' rows or pre-v2
+    NULL-shop rows (NULL never equals the session shop id).
     """
+    user = require_user(request)
     with get_connection() as conn:
-        if shop_id is None:
-            rows = conn.execute(
-                "SELECT * FROM transactions WHERE confirmed = 1 AND shop_id IS NULL"
-                " ORDER BY occurred_at DESC, id DESC"
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM transactions WHERE confirmed = 1 AND shop_id = ?"
-                " ORDER BY occurred_at DESC, id DESC",
-                (shop_id,),
-            ).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM transactions WHERE confirmed = 1 AND shop_id = ?"
+            " ORDER BY occurred_at DESC, id DESC",
+            (user["shop_id"],),
+        ).fetchall()
     return [_entry_from_row(r) for r in rows]
 
 
-@app.post("/api/passports")
-def create_passport(payload: PassportCreateIn, request: Request = None):
-    """Share a snapshot of the shop's credit summary with one lender.
+@app.post("/api/passports", dependencies=[Depends(require_user)])
+def create_passport(payload: PassportCreateIn, request: Request):
+    """Share a snapshot of the caller's credit summary with one lender.
 
+    Login required; the snapshot covers only the caller's shop data.
     The raw share token is returned exactly once, here. Only its
     SHA-256 hash is stored; it never appears in logs or audit rows.
     """
+    user = require_user(request)
+    _check_origin(request)
     _guard("passports", request, _utcnow())
     lender_name = payload.lender_name.strip()
     if not 1 <= len(lender_name) <= 60:
@@ -636,7 +697,11 @@ def create_passport(payload: PassportCreateIn, request: Request = None):
     scope = list(dict.fromkeys(sections))
     now = _utcnow()
     with get_connection() as conn:
-        shop = _resolve_shop_row(conn, payload.shop_id)
+        shop = conn.execute(
+            "SELECT * FROM shops WHERE id = ?", (user["shop_id"],)
+        ).fetchone()
+        if shop is None:
+            raise HTTPException(status_code=404, detail="Shop not found.")
         ledger = conn.execute(
             "SELECT * FROM transactions WHERE shop_id = ? AND confirmed = 1",
             (shop["id"],),
@@ -668,7 +733,10 @@ def create_passport(payload: PassportCreateIn, request: Request = None):
             ),
         )
         passport_id = cur.lastrowid
-        _audit_passport(conn, "passport_created", passport_id, lender_name, created_at)
+        _audit_passport(
+            conn, "passport_created", passport_id, lender_name, created_at,
+            shop_id=shop["id"],
+        )
     return {
         "id": passport_id,
         "token": token,
@@ -677,40 +745,33 @@ def create_passport(payload: PassportCreateIn, request: Request = None):
     }
 
 
-@app.get("/api/passports")
-def list_passports(shop_id: int | None = None):
-    """The shop's passports with view counts. Never tokens or hashes."""
+@app.get("/api/passports", dependencies=[Depends(require_user)])
+def list_passports(request: Request):
+    """The caller's passports with view counts. Never tokens or hashes."""
+    user = require_user(request)
     now = _utcnow()
     with get_connection() as conn:
-        if shop_id is not None:
-            _resolve_shop_row(conn, shop_id)
-            rows = conn.execute(
-                "SELECT * FROM passports WHERE shop_id = ? ORDER BY id DESC",
-                (shop_id,),
-            ).fetchall()
-        else:
-            demo = conn.execute(
-                "SELECT * FROM shops WHERE name = ?", (DEMO_SHOP_NAME,)
-            ).fetchone()
-            if demo is None:
-                rows = conn.execute(
-                    "SELECT * FROM passports ORDER BY id DESC"
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM passports WHERE shop_id = ? ORDER BY id DESC",
-                    (demo["id"],),
-                ).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM passports WHERE shop_id = ? ORDER BY id DESC",
+            (user["shop_id"],),
+        ).fetchall()
         return [_passport_summary(conn, row, now) for row in rows]
 
 
-@app.post("/api/passports/{passport_id}/revoke")
-def revoke_passport(passport_id: int):
-    """Revoke a passport. Idempotent: revoking twice is still a 200."""
+@app.post("/api/passports/{passport_id}/revoke", dependencies=[Depends(require_user)])
+def revoke_passport(passport_id: int, request: Request):
+    """Revoke one of the caller's passports.
+
+    Idempotent: revoking twice is still a 200. Another shop's id is a
+    404, indistinguishable from a missing passport.
+    """
+    user = require_user(request)
+    _check_origin(request)
     now = _utcnow().isoformat()
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM passports WHERE id = ?", (passport_id,)
+            "SELECT * FROM passports WHERE id = ? AND shop_id = ?",
+            (passport_id, user["shop_id"]),
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Passport not found.")
@@ -720,7 +781,8 @@ def revoke_passport(passport_id: int):
                 (now, passport_id),
             )
             _audit_passport(
-                conn, "passport_revoked", passport_id, row["lender_name"], now
+                conn, "passport_revoked", passport_id, row["lender_name"], now,
+                shop_id=user["shop_id"],
             )
             revoked_at = now
         else:
@@ -728,12 +790,17 @@ def revoke_passport(passport_id: int):
     return {"id": passport_id, "status": "revoked", "revoked_at": revoked_at}
 
 
-@app.get("/api/passports/{passport_id}/activity")
-def passport_activity(passport_id: int):
-    """View timestamps for one passport, oldest first."""
+@app.get("/api/passports/{passport_id}/activity", dependencies=[Depends(require_user)])
+def passport_activity(passport_id: int, request: Request):
+    """View timestamps for one of the caller's passports, oldest first.
+
+    Another shop's id is a 404, indistinguishable from a missing passport.
+    """
+    user = require_user(request)
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id FROM passports WHERE id = ?", (passport_id,)
+            "SELECT id FROM passports WHERE id = ? AND shop_id = ?",
+            (passport_id, user["shop_id"]),
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Passport not found.")

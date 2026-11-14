@@ -11,6 +11,7 @@ import pytest
 
 import app as appmod
 import db
+import helpers
 
 # The exact pre-v2 shapes for shops, audit_log and usage_counters; every
 # other table is unchanged from the current schema. Used to build a
@@ -251,13 +252,23 @@ def test_v1_entry_confirm_ledger_flow_unchanged(tmp_db, monkeypatch):
         },
     )
 
-    draft = appmod.create_entry(appmod.EntryIn(text="sold 5 kilos of sugar"))
+    account = helpers.register_account(
+        monkeypatch, phone="0711111111", pin="482917",
+        shop_name="Schema Duka", ip="10.13.0.1",
+    )
+    draft = appmod.create_entry(
+        appmod.EntryIn(text="sold 5 kilos of sugar"),
+        helpers.authed("/api/entry", account, method="POST"),
+    )
     assert draft["confirmed"] == 0
-    confirmed = appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"]))
+    confirmed = appmod.confirm_transaction(
+        appmod.ConfirmIn(id=draft["id"]),
+        helpers.authed("/api/transactions/confirm", account, method="POST"),
+    )
     assert confirmed["confirmed"] == 1
 
-    ledger = appmod.read_ledger()
-    assert [entry["id"] for entry in ledger] == [draft["id"], 2]
+    ledger = appmod.read_ledger(helpers.authed("/api/ledger", account))
+    assert [entry["id"] for entry in ledger] == [draft["id"]]
     assert all(entry["confirmed"] == 1 for entry in ledger)
 
 
@@ -267,7 +278,7 @@ def test_global_ai_cap_counter_unchanged_after_upgrade(tmp_db):
     now = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
 
     with db.get_connection() as conn:
-        assert appmod._try_consume_ai_call(conn, now) is True
+        assert appmod._try_consume_ai_call(conn, now, 1) is True
         row = conn.execute(
             "SELECT count FROM usage_counters"
             " WHERE day = '2026-11-01' AND name = 'ai_calls' AND shop_id = 0"

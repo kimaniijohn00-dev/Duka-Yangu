@@ -1,7 +1,8 @@
 # Duka-Yangu v2 plan — real accounts and per-shop data isolation
 
-Status: build steps 1–3 (dependencies, schema, authentication)
-implemented; no existing endpoints scoped, no v1 behavior changed.
+Status: build steps 1–4 (dependencies, schema, authentication,
+per-shop endpoint scoping) implemented. No existing endpoint trusts
+client shop ids; v1 payload shapes and lender behavior unchanged.
 Nothing deployed to Modal, nothing committed.
 
 Working assumption: this plan targets the `v2` branch. Git could not be

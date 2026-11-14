@@ -20,7 +20,26 @@ from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
 import app as appmod
+import db
+import helpers
 from services import transcribe as transcribemod
+
+
+@pytest.fixture
+def account(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "transcribe.db")
+    db.init_db()
+    return helpers.register_account(
+        monkeypatch, phone="0711111111", pin="482917",
+        shop_name="Voice Duka", ip="10.17.0.1",
+    )
+
+
+def authed_upload(account, data, filename="recording.wav"):
+    return appmod.transcribe_entry(
+        make_upload(data, filename),
+        helpers.authed("/api/transcribe", account, method="POST"),
+    )
 
 META_URL = "https://api.meta.ai/v1/asr/transcribe"
 
@@ -92,15 +111,13 @@ def test_transcribe_route_registered():
     assert methods.get("/api/transcribe") == ["POST"]
 
 
-def test_transcribe_returns_text(monkeypatch):
+def test_transcribe_returns_text(monkeypatch, account):
     seen = install_meta_fake(
         monkeypatch,
         FakeMetaResponse(200, {"transcript": "sold 5kg sugar for 800 bob", "turns": []}),
     )
 
-    result = run_route(
-        appmod.transcribe_entry(make_upload(make_wav_bytes(1)))
-    )
+    result = run_route(authed_upload(account, make_wav_bytes(1)))
 
     assert result == {"text": "sold 5kg sugar for 800 bob"}
     assert seen["url"] == META_URL
@@ -115,59 +132,61 @@ def test_transcribe_returns_text(monkeypatch):
     assert seen["files"]["audio"][2] == "audio/wav"
 
 
-def test_transcribe_too_large_is_413(monkeypatch):
+def test_transcribe_too_large_is_413(monkeypatch, account):
     install_meta_fake(monkeypatch, FakeMetaResponse(200, {"transcript": "x"}))
 
     with pytest.raises(HTTPException) as exc_info:
-        run_route(appmod.transcribe_entry(make_upload(b"\x00" * (2 * 1024 * 1024 + 1))))
+        run_route(authed_upload(account, b"\x00" * (2 * 1024 * 1024 + 1)))
 
     assert exc_info.value.status_code == 413
 
 
-def test_transcribe_longer_than_60s_is_413(monkeypatch):
+def test_transcribe_longer_than_60s_is_413(monkeypatch, account):
     install_meta_fake(monkeypatch, FakeMetaResponse(200, {"transcript": "x"}))
 
     with pytest.raises(HTTPException) as exc_info:
-        run_route(appmod.transcribe_entry(make_upload(make_wav_bytes(61))))
+        run_route(authed_upload(account, make_wav_bytes(61)))
 
     assert exc_info.value.status_code == 413
 
 
-def test_transcribe_meta_error_is_502(monkeypatch):
+def test_transcribe_meta_error_is_502(monkeypatch, account):
     install_meta_fake(monkeypatch, FakeMetaResponse(400, {"detail": "bad wav"}))
 
     with pytest.raises(HTTPException) as exc_info:
-        run_route(appmod.transcribe_entry(make_upload(make_wav_bytes(1))))
+        run_route(authed_upload(account, make_wav_bytes(1)))
 
     assert exc_info.value.status_code == 502
 
 
-def test_transcribe_meta_unreachable_is_502(monkeypatch):
+def test_transcribe_meta_unreachable_is_502(monkeypatch, account):
     install_meta_fake(monkeypatch, error=httpx.ConnectError("no network"))
 
     with pytest.raises(HTTPException) as exc_info:
-        run_route(appmod.transcribe_entry(make_upload(make_wav_bytes(1))))
+        run_route(authed_upload(account, make_wav_bytes(1)))
 
     assert exc_info.value.status_code == 502
 
 
-def test_transcribe_missing_key_is_502(monkeypatch):
+def test_transcribe_missing_key_is_502(monkeypatch, account):
     install_meta_fake(monkeypatch, FakeMetaResponse(200, {"transcript": "x"}))
     monkeypatch.setenv("MODEL_API_KEY", "")
 
     with pytest.raises(HTTPException) as exc_info:
-        run_route(appmod.transcribe_entry(make_upload(make_wav_bytes(1))))
+        run_route(authed_upload(account, make_wav_bytes(1)))
 
     assert exc_info.value.status_code == 502
 
 
-def test_transcribe_keeps_audio_in_memory(monkeypatch, tmp_path):
+def test_transcribe_keeps_audio_in_memory(monkeypatch, tmp_path, account):
     install_meta_fake(
         monkeypatch, FakeMetaResponse(200, {"transcript": "sugar 800"})
     )
-    monkeypatch.chdir(tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
 
-    result = run_route(appmod.transcribe_entry(make_upload(make_wav_bytes(1))))
+    result = run_route(authed_upload(account, make_wav_bytes(1)))
 
     assert result == {"text": "sugar 800"}
-    assert list(tmp_path.iterdir()) == []
+    assert list(work.iterdir()) == []

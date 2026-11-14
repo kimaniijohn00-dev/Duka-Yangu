@@ -18,6 +18,7 @@ from starlette.datastructures import UploadFile
 
 import app as appmod
 import db
+import helpers
 from services import credit as creditmod
 from services.explain import template_explanation
 
@@ -76,10 +77,31 @@ def fake_request(host=HOST_A):
 def seed_demo_shop():
     with db.get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO shops (name, location, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO shops (name, location, is_demo, created_at) VALUES (?, ?, 1, ?)",
             (creditmod.DEMO_SHOP_NAME, "test", date.today().isoformat()),
         )
         return cur.lastrowid
+
+
+def make_account(monkeypatch, phone="0711111111"):
+    return helpers.register_account(
+        monkeypatch, phone=phone, pin="482917",
+        shop_name="Deploy Duka", ip="10.18.0.1",
+    )
+
+
+def authed_entry(account, text="sold sugar", ip=HOST_A):
+    return appmod.create_entry(
+        appmod.EntryIn(text=text),
+        helpers.authed("/api/entry", account, method="POST", ip=ip),
+    )
+
+
+def authed_upload(account, data, ip=HOST_A):
+    return appmod.transcribe_entry(
+        make_upload(data),
+        helpers.authed("/api/transcribe", account, method="POST", ip=ip),
+    )
 
 
 def make_wav_bytes(seconds, rate=16000):
@@ -121,28 +143,26 @@ def stub_parse(monkeypatch, calls=None):
 
 def test_entry_rate_limit_20_per_minute(isolated_db, monkeypatch):
     stub_parse(monkeypatch)
-    request = fake_request()
+    account = make_account(monkeypatch)
     for _ in range(20):
-        appmod.create_entry(appmod.EntryIn(text="sold sugar"), request)
+        authed_entry(account)
     with pytest.raises(HTTPException) as exc_info:
-        appmod.create_entry(appmod.EntryIn(text="sold sugar"), request)
+        authed_entry(account)
     assert exc_info.value.status_code == 429
     # A different IP still has its own budget.
-    appmod.create_entry(appmod.EntryIn(text="sold sugar"), fake_request(HOST_B))
+    authed_entry(account, ip=HOST_B)
 
 
 def test_transcribe_rate_limit_10_per_minute(isolated_db, monkeypatch):
     monkeypatch.setattr(
         appmod, "transcribe_audio", lambda data, filename: "sold sugar"
     )
-    request = fake_request()
+    account = make_account(monkeypatch)
     for _ in range(10):
-        result = run_route(
-            appmod.transcribe_entry(make_upload(make_wav_bytes(1)), request)
-        )
+        result = run_route(authed_upload(account, make_wav_bytes(1)))
         assert result == {"text": "sold sugar"}
     with pytest.raises(HTTPException) as exc_info:
-        run_route(appmod.transcribe_entry(make_upload(make_wav_bytes(1)), request))
+        run_route(authed_upload(account, make_wav_bytes(1)))
     assert exc_info.value.status_code == 429
 
 
@@ -152,7 +172,7 @@ def test_explain_rate_limit_10_per_minute(isolated_db, monkeypatch):
     monkeypatch.setattr(
         appmod, "explain_credit", lambda summary: {"text": "steady", "source": "spark"}
     )
-    request = fake_request()
+    request = helpers.make_request("/api/credit/explain", ip=HOST_A)
     for _ in range(10):
         appmod.credit_explain(as_of="2026-01-01", request=request)
     with pytest.raises(HTTPException) as exc_info:
@@ -160,9 +180,9 @@ def test_explain_rate_limit_10_per_minute(isolated_db, monkeypatch):
     assert exc_info.value.status_code == 429
 
 
-def test_passports_rate_limit_10_per_minute(isolated_db):
-    seed_demo_shop()
-    request = fake_request()
+def test_passports_rate_limit_10_per_minute(isolated_db, monkeypatch):
+    account = make_account(monkeypatch)
+    request = helpers.authed("/api/passports", account, method="POST", ip=HOST_A)
     for _ in range(10):
         created = appmod.create_passport(
             appmod.PassportCreateIn(lender_name="Equity Bank", expires_in_days=7),
@@ -186,18 +206,19 @@ def test_daily_cap_blocks_third_call_with_friendly_429(
     monkeypatch.setenv("DUKA_DAILY_AI_CAP", "2")
     calls = []
     stub_parse(monkeypatch, calls)
-    request = fake_request()
-    appmod.create_entry(appmod.EntryIn(text="one"), request)
-    appmod.create_entry(appmod.EntryIn(text="two"), request)
+    account = make_account(monkeypatch)
+    authed_entry(account, text="one")
+    authed_entry(account, text="two")
     with pytest.raises(HTTPException) as exc_info:
-        appmod.create_entry(appmod.EntryIn(text="three"), request)
+        authed_entry(account, text="three")
     assert exc_info.value.status_code == 429
     assert exc_info.value.detail == appmod.DAILY_CAP_MESSAGE
     assert calls == ["one", "two"]
     with db.get_connection() as conn:
         row = conn.execute(
-            "SELECT count FROM usage_counters WHERE day = ? AND name = ?",
-            (date.today().isoformat(), appmod.DAILY_AI_COUNTER),
+            "SELECT count FROM usage_counters WHERE day = ? AND name = ? AND shop_id = ?",
+            (date.today().isoformat(), appmod.DAILY_AI_COUNTER,
+             db.GLOBAL_USAGE_SHOP_ID),
         ).fetchone()
     assert row["count"] == 2
 
@@ -210,11 +231,11 @@ def test_daily_cap_counts_transcribe_and_entry_together(
     monkeypatch.setattr(
         appmod, "transcribe_audio", lambda data, filename: "sold sugar"
     )
-    request = fake_request()
-    appmod.create_entry(appmod.EntryIn(text="one"), request)
-    run_route(appmod.transcribe_entry(make_upload(make_wav_bytes(1)), request))
+    account = make_account(monkeypatch)
+    authed_entry(account, text="one")
+    run_route(authed_upload(account, make_wav_bytes(1)))
     with pytest.raises(HTTPException) as exc_info:
-        appmod.create_entry(appmod.EntryIn(text="three"), request)
+        authed_entry(account, text="three")
     assert exc_info.value.status_code == 429
 
 
@@ -227,7 +248,10 @@ def test_explain_never_429s_falls_back_to_template(isolated_db, monkeypatch):
         raise AssertionError("Spark must not be called when capped")
 
     monkeypatch.setattr(appmod, "explain_credit", explode)
-    result = appmod.credit_explain(as_of="2026-01-01", request=fake_request())
+    result = appmod.credit_explain(
+        as_of="2026-01-01",
+        request=helpers.make_request("/api/credit/explain", ip=HOST_A),
+    )
     assert result["as_of"] == "2026-01-01"
     assert result["source"] == "template"
     assert result["text"] == template_explanation(SCORED)
@@ -247,15 +271,16 @@ def test_explain_cache_avoids_repeat_spark_calls(isolated_db, monkeypatch):
     monkeypatch.setattr(appmod, "explain_credit", fake_explain)
     monkeypatch.setattr(appmod, "assess_shop", lambda items, day: dict(SCORED))
 
-    first = appmod.credit_explain(shop_id=shop_id, as_of="2026-01-01")
-    second = appmod.credit_explain(shop_id=shop_id, as_of="2026-01-01")
+    request = helpers.make_request("/api/credit/explain", ip=HOST_A)
+    first = appmod.credit_explain(as_of="2026-01-01", request=request)
+    second = appmod.credit_explain(as_of="2026-01-01", request=request)
     assert calls == [70]
     assert second == first
 
     monkeypatch.setattr(
         appmod, "assess_shop", lambda items, day: {**SCORED, "score": 71}
     )
-    third = appmod.credit_explain(shop_id=shop_id, as_of="2026-01-01")
+    third = appmod.credit_explain(as_of="2026-01-01", request=request)
     assert calls == [70, 71]
     assert third["text"] == "scored 71"
 

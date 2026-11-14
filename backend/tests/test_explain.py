@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 import app as appmod
 import db
+import helpers
 from services import explain as explainmod
 
 SCORED = {
@@ -234,15 +235,22 @@ def test_contributor_model_refused(monkeypatch, caplog):
 def use_temp_db(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "explain.db")
     db.init_db()
+    appmod._rate_limit_hits.clear()
+    appmod._api_rate_limit_hits.clear()
+
+
+def make_account(monkeypatch, phone="0711111111"):
+    return helpers.register_account(
+        monkeypatch, phone=phone, pin="482917",
+        shop_name="Explain Duka", ip="10.16.0.1",
+    )
 
 
 def test_endpoint_explain_spark(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
+    account = make_account(monkeypatch)
+    shop_id = account["shop_id"]
     with db.get_connection() as conn:
-        shop_id = conn.execute(
-            "INSERT INTO shops (name, location, created_at) VALUES (?, ?, ?)",
-            ("Big Duka", "test", "2026-01-01T08:00:00+03:00"),
-        ).lastrowid
         for day in range(40):
             stamp = f"2026-{1 + (day // 20):02d}-{(day % 20) + 1:02d}T09:00:00+03:00"
             for _ in range(3):
@@ -255,7 +263,8 @@ def test_endpoint_explain_spark(monkeypatch, tmp_path):
                                'test', 'api', 1, ?, ?)""",
                     (shop_id, stamp, stamp),
                 )
-    summary = appmod.credit_summary(shop_id=shop_id)
+    summary = appmod.credit_summary(
+        request=helpers.authed("/api/credit/summary", account))
     assert summary["status"] == "scored"
     reply = (
         f"Your shop scored {summary['score']} out of 100"
@@ -263,7 +272,8 @@ def test_endpoint_explain_spark(monkeypatch, tmp_path):
     )
     install_fake_openai(monkeypatch, text=reply)
 
-    result = appmod.credit_explain(shop_id=shop_id)
+    result = appmod.credit_explain(
+        request=helpers.authed("/api/credit/explain", account))
 
     assert result["source"] == "spark"
     assert result["text"] == reply
@@ -272,13 +282,10 @@ def test_endpoint_explain_spark(monkeypatch, tmp_path):
 def test_endpoint_explain_insufficient(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
     install_fake_openai(monkeypatch, error=AssertionError("must not call Spark"))
-    with db.get_connection() as conn:
-        shop_id = conn.execute(
-            "INSERT INTO shops (name, location, created_at) VALUES (?, ?, ?)",
-            ("Tiny Duka", "test", "2026-01-01T08:00:00+03:00"),
-        ).lastrowid
+    account = make_account(monkeypatch)
 
-    result = appmod.credit_explain(shop_id=shop_id)
+    result = appmod.credit_explain(
+        request=helpers.authed("/api/credit/explain", account))
 
     assert result["text"] == explainmod.INSUFFICIENT_MESSAGE
     assert result["source"] == "template"
@@ -288,8 +295,8 @@ def test_endpoint_explain_insufficient(monkeypatch, tmp_path):
 def test_endpoint_explain_errors(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
     with pytest.raises(HTTPException) as exc_info:
-        appmod.credit_explain(shop_id=1, as_of="yesterday")
+        appmod.credit_explain(as_of="yesterday")
     assert exc_info.value.status_code == 400
     with pytest.raises(HTTPException) as exc_info:
-        appmod.credit_explain(shop_id=4242)
+        appmod.credit_explain()
     assert exc_info.value.status_code == 404

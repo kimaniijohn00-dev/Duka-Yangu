@@ -16,6 +16,7 @@ from starlette.requests import Request
 import app as appmod
 import auth_routes
 import db
+import helpers
 from services import auth as authmod
 
 INVITE = "test-invite-1"
@@ -419,7 +420,13 @@ def test_pin_and_token_never_stored_or_logged(auth_env):
     assert all("+254712345678" not in row["detail"] for row in details)
 
 
-def test_v1_endpoints_work_without_auth(auth_env, monkeypatch):
+def test_v1_calling_convention_unchanged(auth_env, monkeypatch):
+    # v1 calling convention is unchanged (payloads, return shapes); only
+    # the caller's session is now required alongside.
+    account = helpers.register_account(
+        monkeypatch, phone="0799999999", pin="739536",
+        shop_name="V1 Duka", ip="10.14.0.1",
+    )
     monkeypatch.setattr(
         appmod, "parse_entry",
         lambda text: {
@@ -431,8 +438,14 @@ def test_v1_endpoints_work_without_auth(auth_env, monkeypatch):
             "counterparty": None,
         },
     )
-    draft = appmod.create_entry(appmod.EntryIn(text="sold sugar"))
-    confirmed = appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"]))
+    draft = appmod.create_entry(
+        appmod.EntryIn(text="sold sugar"),
+        helpers.authed("/api/entry", account, method="POST"),
+    )
+    confirmed = appmod.confirm_transaction(
+        appmod.ConfirmIn(id=draft["id"]),
+        helpers.authed("/api/transactions/confirm", account, method="POST"),
+    )
     assert confirmed["confirmed"] == 1
-    assert appmod.read_ledger()[0]["id"] == draft["id"]
+    assert appmod.read_ledger(helpers.authed("/api/ledger", account))[0]["id"] == draft["id"]
     assert appmod.health() == {"status": "ok"}

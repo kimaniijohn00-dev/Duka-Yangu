@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 import app as appmod
 import db
+import helpers
 from services import spark as sparkmod
 
 
@@ -18,9 +19,18 @@ from services import spark as sparkmod
 def isolated_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     db.init_db()
+    appmod._rate_limit_hits.clear()
+    appmod._api_rate_limit_hits.clear()
 
 
-def make_draft(monkeypatch, text="sold 5 kilos of sugar for 800 bob", parsed=None):
+def make_account(monkeypatch):
+    return helpers.register_account(
+        monkeypatch, phone="0711111111", pin="482917",
+        shop_name="Test Duka", ip="10.11.0.1",
+    )
+
+
+def make_draft(monkeypatch, account, text="sold 5 kilos of sugar for 800 bob", parsed=None):
     parsed = parsed if parsed is not None else {
         "type": "sale",
         "item": "sugar",
@@ -30,12 +40,23 @@ def make_draft(monkeypatch, text="sold 5 kilos of sugar for 800 bob", parsed=Non
         "counterparty": None,
     }
     monkeypatch.setattr(appmod, "parse_entry", lambda t: dict(parsed))
-    return appmod.create_entry(appmod.EntryIn(text=text))
+    return appmod.create_entry(
+        appmod.EntryIn(text=text),
+        helpers.authed("/api/entry", account, method="POST"),
+    )
+
+
+def confirm(account, entry_id, **edits):
+    return appmod.confirm_transaction(
+        appmod.ConfirmIn(id=entry_id, **edits),
+        helpers.authed("/api/transactions/confirm", account, method="POST"),
+    )
 
 
 def test_entry_parses_2k_as_2000(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     db.init_db()
+    account = make_account(monkeypatch)
     monkeypatch.setenv("MODEL_API_KEY", "test-key")
     seen = {}
 
@@ -68,7 +89,10 @@ def test_entry_parses_2k_as_2000(monkeypatch, tmp_path):
 
     monkeypatch.setattr(sparkmod, "OpenAI", FakeOpenAI)
 
-    body = appmod.create_entry(appmod.EntryIn(text="sold 1 packet of sugar for 2k"))
+    body = appmod.create_entry(
+        appmod.EntryIn(text="sold 1 packet of sugar for 2k"),
+        helpers.authed("/api/entry", account, method="POST"),
+    )
 
     assert "2k" in sparkmod.SYSTEM_PROMPT  # the rule the real model sees
     assert seen["base_url"] == "https://api.meta.ai/v1"
@@ -81,10 +105,11 @@ def test_entry_parses_2k_as_2000(monkeypatch, tmp_path):
 
 
 def test_confirm_marks_draft_confirmed(monkeypatch, isolated_db):
-    draft = make_draft(monkeypatch)
+    account = make_account(monkeypatch)
+    draft = make_draft(monkeypatch, account)
     assert draft["confirmed"] == 0
 
-    out = appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"]))
+    out = confirm(account, draft["id"])
 
     assert out["id"] == draft["id"]
     assert out["confirmed"] == 1
@@ -96,36 +121,41 @@ def test_confirm_marks_draft_confirmed(monkeypatch, isolated_db):
 
 
 def test_confirm_is_not_repeatable(monkeypatch, isolated_db):
-    draft = make_draft(monkeypatch)
-    appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"]))
+    account = make_account(monkeypatch)
+    draft = make_draft(monkeypatch, account)
+    confirm(account, draft["id"])
 
     with pytest.raises(HTTPException) as exc_info:
-        appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"]))
+        confirm(account, draft["id"])
 
     assert exc_info.value.status_code == 409
 
 
 def test_unconfirmed_draft_stays_out_of_ledger(monkeypatch, isolated_db):
-    draft = make_draft(monkeypatch)
+    account = make_account(monkeypatch)
+    draft = make_draft(monkeypatch, account)
+    shop_id = account["shop_id"]
     with db.get_connection() as conn:
         conn.execute(
             """INSERT INTO transactions
-               (type, item, quantity, unit, amount_kes, raw_text,
+               (shop_id, type, item, quantity, unit, amount_kes, raw_text,
                 source, confirmed, occurred_at, created_at)
-               VALUES ('sale', 'tea', 1, 'packet', 100, 'old sale',
-                       'api', 1, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')"""
+               VALUES (?, 'sale', 'tea', 1, 'packet', 100, 'old sale',
+                       'api', 1, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')""",
+            (shop_id,),
         )
         old_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.execute(
             """INSERT INTO transactions
-               (type, item, quantity, unit, amount_kes, raw_text,
+               (shop_id, type, item, quantity, unit, amount_kes, raw_text,
                 source, confirmed, occurred_at, created_at)
-               VALUES ('sale', 'bread', 2, 'pcs', 140, 'new sale',
-                       'api', 1, '2026-10-27T00:00:00+00:00', '2026-10-27T00:00:00+00:00')"""
+               VALUES (?, 'sale', 'bread', 2, 'pcs', 140, 'new sale',
+                       'api', 1, '2026-10-27T00:00:00+00:00', '2026-10-27T00:00:00+00:00')""",
+            (shop_id,),
         )
         new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-    ledger = appmod.read_ledger()
+    ledger = appmod.read_ledger(helpers.authed("/api/ledger", account))
 
     assert [entry["id"] for entry in ledger] == [new_id, old_id]
     assert draft["id"] not in [entry["id"] for entry in ledger]
@@ -133,16 +163,18 @@ def test_unconfirmed_draft_stays_out_of_ledger(monkeypatch, isolated_db):
 
 
 def test_confirm_missing_id_returns_404(monkeypatch, isolated_db):
+    account = make_account(monkeypatch)
     with pytest.raises(HTTPException) as exc_info:
-        appmod.confirm_transaction(appmod.ConfirmIn(id=9999))
+        confirm(account, 9999)
 
     assert exc_info.value.status_code == 404
 
 
 def test_confirm_without_edits_keeps_values(monkeypatch, isolated_db):
-    draft = make_draft(monkeypatch)
+    account = make_account(monkeypatch)
+    draft = make_draft(monkeypatch, account)
 
-    out = appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"]))
+    out = confirm(account, draft["id"])
 
     assert (out["item"], out["quantity"], out["amount_kes"]) == ("sugar", 5, 800)
     with db.get_connection() as conn:
@@ -160,14 +192,13 @@ def test_confirm_without_edits_keeps_values(monkeypatch, isolated_db):
 
 
 def test_confirm_with_edits_updates_ledger(monkeypatch, isolated_db):
-    draft = make_draft(monkeypatch)
+    account = make_account(monkeypatch)
+    draft = make_draft(monkeypatch, account)
 
-    out = appmod.confirm_transaction(
-        appmod.ConfirmIn(id=draft["id"], item="tea", quantity=2, amount_kes=150)
-    )
+    out = confirm(account, draft["id"], item="tea", quantity=2, amount_kes=150)
 
     assert (out["item"], out["quantity"], out["amount_kes"]) == ("tea", 2, 150)
-    ledger = appmod.read_ledger()
+    ledger = appmod.read_ledger(helpers.authed("/api/ledger", account))
     assert [(entry["item"], entry["quantity"], entry["amount_kes"]) for entry in ledger] == [
         ("tea", 2, 150)
     ]
@@ -185,10 +216,11 @@ def test_confirm_with_edits_updates_ledger(monkeypatch, isolated_db):
     ],
 )
 def test_confirm_rejects_invalid_edits(monkeypatch, isolated_db, kwargs):
-    draft = make_draft(monkeypatch)
+    account = make_account(monkeypatch)
+    draft = make_draft(monkeypatch, account)
 
     with pytest.raises(HTTPException) as exc_info:
-        appmod.confirm_transaction(appmod.ConfirmIn(id=draft["id"], **kwargs))
+        confirm(account, draft["id"], **kwargs)
 
     assert exc_info.value.status_code == 422
     with db.get_connection() as conn:
@@ -222,32 +254,26 @@ def _insert_confirmed(monkeypatch, shop_id, item="sugar", amount=800):
         )
 
 
-def test_ledger_defaults_to_own_entries(monkeypatch, isolated_db):
-    _insert_confirmed(monkeypatch, None, item="sugar")
-    _insert_confirmed(monkeypatch, 999999, item="bread")
+def test_ledger_returns_only_own_entries(monkeypatch, isolated_db):
+    account = make_account(monkeypatch)
+    other = helpers.register_account(
+        monkeypatch, phone="0722222222", pin="739536",
+        shop_name="Other Duka", ip="10.11.0.2",
+    )
+    _insert_confirmed(monkeypatch, account["shop_id"], item="sugar")
+    _insert_confirmed(monkeypatch, other["shop_id"], item="bread")
 
-    ledger = appmod.read_ledger()
+    ledger = appmod.read_ledger(helpers.authed("/api/ledger", account))
 
     assert [entry["item"] for entry in ledger] == ["sugar"]
-    assert all(entry["shop_id"] is None for entry in ledger)
-
-
-def test_ledger_accepts_explicit_shop_id(monkeypatch, isolated_db):
-    _insert_confirmed(monkeypatch, None, item="sugar")
-    _insert_confirmed(monkeypatch, 999999, item="bread")
-
-    ledger = appmod.read_ledger(shop_id=999999)
-
-    assert [entry["item"] for entry in ledger] == ["bread"]
-    assert all(entry["shop_id"] == 999999 for entry in ledger)
+    assert all(entry["shop_id"] == account["shop_id"] for entry in ledger)
 
 
 def test_confirm_with_edits_writes_audit_entry(monkeypatch, isolated_db):
-    draft = make_draft(monkeypatch)
+    account = make_account(monkeypatch)
+    draft = make_draft(monkeypatch, account)
 
-    appmod.confirm_transaction(
-        appmod.ConfirmIn(id=draft["id"], item="tea", quantity=2, amount_kes=150)
-    )
+    confirm(account, draft["id"], item="tea", quantity=2, amount_kes=150)
 
     with db.get_connection() as conn:
         rows = conn.execute(

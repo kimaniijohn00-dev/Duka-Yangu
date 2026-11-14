@@ -16,6 +16,7 @@ from fastapi import HTTPException
 
 import app as appmod
 import db
+import helpers
 from services import credit as creditmod
 from services.passport import DEMO_NOTE
 
@@ -27,21 +28,32 @@ def isolated_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "passport.db")
     db.init_db()
     appmod._rate_limit_hits.clear()
+    appmod._api_rate_limit_hits.clear()
+
+
+def make_owner(monkeypatch, phone="0711111111"):
+    return helpers.register_account(
+        monkeypatch, phone=phone, pin="482917",
+        shop_name=creditmod.DEMO_SHOP_NAME, ip="10.20.0.1",
+    )
+
+
+def authed_get(owner, path):
+    return helpers.authed(path, owner)
+
+
+def authed_post(owner, path):
+    return helpers.authed(path, owner, method="POST")
 
 
 def fake_request(host="testclient"):
     return SimpleNamespace(client=SimpleNamespace(host=host))
 
 
-def seed_shop(with_credit_names=False):
-    """Demo shop with 40 days x 3 confirmed txns (scores), dated to today."""
+def seed_shop(shop_id, with_credit_names=False):
+    """40 days x 3 confirmed txns (scores) for the owner's shop, dated to today."""
     today = date.today()
     with db.get_connection() as conn:
-        cur = conn.execute(
-            "INSERT INTO shops (name, location, created_at) VALUES (?, ?, ?)",
-            (creditmod.DEMO_SHOP_NAME, "test", today.isoformat()),
-        )
-        shop_id = cur.lastrowid
         rows = []
         for offset in range(40):
             day = (today - timedelta(days=offset)).isoformat()
@@ -83,15 +95,18 @@ def seed_shop(with_credit_names=False):
     return shop_id
 
 
-def create_passport(**overrides):
+def create_passport(owner, **overrides):
     body = {"lender_name": LENDER, "expires_in_days": 7}
     body.update(overrides)
-    return appmod.create_passport(appmod.PassportCreateIn(**body))
+    return appmod.create_passport(
+        appmod.PassportCreateIn(**body), authed_post(owner, "/api/passports")
+    )
 
 
-def test_create_returns_token_that_works(isolated_db):
-    seed_shop()
-    created = create_passport()
+def test_create_returns_token_that_works(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner)
 
     assert created["token"]
     assert created["share_path"] == f"/p/{created['token']}"
@@ -122,9 +137,10 @@ def test_create_returns_token_that_works(isolated_db):
     assert len(snapshot["performance"]["weekly_sales_kes"]) == 8
 
 
-def test_db_stores_only_hash(isolated_db):
-    seed_shop()
-    created = create_passport()
+def test_db_stores_only_hash(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner)
     expected_hash = hashlib.sha256(created["token"].encode()).hexdigest()
 
     with db.get_connection() as conn:
@@ -138,9 +154,10 @@ def test_db_stores_only_hash(isolated_db):
     assert created["token"] not in json.dumps(dict(row))
 
 
-def test_snapshot_has_no_customer_names_or_rows(isolated_db):
-    seed_shop(with_credit_names=True)
-    created = create_passport()
+def test_snapshot_has_no_customer_names_or_rows(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"], with_credit_names=True)
+    created = create_passport(owner)
 
     snapshot = appmod.view_passport(created["token"], fake_request())
     dumped = json.dumps(snapshot)
@@ -152,9 +169,10 @@ def test_snapshot_has_no_customer_names_or_rows(isolated_db):
     assert "transactions" not in dumped
 
 
-def test_unchosen_sections_are_omitted(isolated_db):
-    seed_shop()
-    created = create_passport(sections=["score"])
+def test_unchosen_sections_are_omitted(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner, sections=["score"])
 
     snapshot = appmod.view_passport(created["token"], fake_request())
 
@@ -165,24 +183,28 @@ def test_unchosen_sections_are_omitted(isolated_db):
     assert snapshot["disclaimer"] == creditmod.DISCLAIMER
 
 
-def test_revoked_returns_410_immediately(isolated_db):
-    seed_shop()
-    created = create_passport()
+def test_revoked_returns_410_immediately(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner)
 
-    revoked = appmod.revoke_passport(created["id"])
+    revoked = appmod.revoke_passport(
+        created["id"], authed_post(owner, "/revoke"))
     assert revoked["status"] == "revoked"
 
     with pytest.raises(HTTPException) as exc_info:
         appmod.view_passport(created["token"], fake_request())
     assert exc_info.value.status_code == 410
 
-    again = appmod.revoke_passport(created["id"])
+    again = appmod.revoke_passport(
+        created["id"], authed_post(owner, "/revoke"))
     assert again["revoked_at"] == revoked["revoked_at"]
 
 
 def test_expired_returns_410(isolated_db, monkeypatch):
-    seed_shop()
-    created = create_passport()
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner)
     future = appmod._utcnow() + timedelta(days=31)
     monkeypatch.setattr(appmod, "_utcnow", lambda: future)
 
@@ -190,40 +212,45 @@ def test_expired_returns_410(isolated_db, monkeypatch):
         appmod.view_passport(created["token"], fake_request())
     assert exc_info.value.status_code == 410
 
-    assert appmod.list_passports()[0]["status"] == "expired"
+    listed = appmod.list_passports(authed_get(owner, "/api/passports"))
+    assert listed[0]["status"] == "expired"
 
 
-def test_unknown_token_returns_404(isolated_db):
-    seed_shop()
+def test_unknown_token_returns_404(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
     with pytest.raises(HTTPException) as exc_info:
         appmod.view_passport("no-such-token", fake_request())
     assert exc_info.value.status_code == 404
 
 
-def test_views_are_counted(isolated_db):
-    seed_shop()
-    created = create_passport()
+def test_views_are_counted(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner)
 
-    listed = appmod.list_passports()
+    listed = appmod.list_passports(authed_get(owner, "/api/passports"))
     assert listed[0]["view_count"] == 0
     assert listed[0]["last_viewed_at"] is None
 
     appmod.view_passport(created["token"], fake_request())
     appmod.view_passport(created["token"], fake_request())
 
-    listed = appmod.list_passports()
+    listed = appmod.list_passports(authed_get(owner, "/api/passports"))
     assert listed[0]["view_count"] == 2
     assert listed[0]["last_viewed_at"] is not None
     assert listed[0]["status"] == "active"
 
-    activity = appmod.passport_activity(created["id"])
+    activity = appmod.passport_activity(
+        created["id"], authed_get(owner, "/activity"))
     assert activity["passport_id"] == created["id"]
     assert len(activity["views"]) == 2
 
 
-def test_rate_limit_triggers(isolated_db):
-    seed_shop()
-    created = create_passport()
+def test_rate_limit_triggers(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner)
     request = fake_request()
 
     for _ in range(30):
@@ -233,11 +260,13 @@ def test_rate_limit_triggers(isolated_db):
     assert exc_info.value.status_code == 429
 
 
-def test_audit_rows_exist_and_contain_no_token(isolated_db):
-    seed_shop()
-    created = create_passport()
+def test_audit_rows_exist_and_contain_no_token(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner)
     appmod.view_passport(created["token"], fake_request())
-    appmod.revoke_passport(created["id"])
+    appmod.revoke_passport(
+        created["id"], authed_post(owner, "/revoke"))
 
     with db.get_connection() as conn:
         rows = conn.execute(
@@ -253,11 +282,12 @@ def test_audit_rows_exist_and_contain_no_token(isolated_db):
         assert created["token"] not in (row["detail"] or "")
 
 
-def test_list_never_returns_tokens_or_hashes(isolated_db):
-    seed_shop()
-    create_passport()
+def test_list_never_returns_tokens_or_hashes(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    create_passport(owner)
 
-    listed = appmod.list_passports()
+    listed = appmod.list_passports(authed_get(owner, "/api/passports"))
 
     assert len(listed) == 1
     assert "token" not in listed[0]
@@ -274,18 +304,23 @@ def test_list_never_returns_tokens_or_hashes(isolated_db):
         {"lender_name": LENDER, "expires_in_days": 30, "sections": ["everything"]},
     ],
 )
-def test_create_rejects_bad_input(isolated_db, body):
-    seed_shop()
+def test_create_rejects_bad_input(isolated_db, monkeypatch, body):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
     with pytest.raises(HTTPException) as exc_info:
-        appmod.create_passport(appmod.PassportCreateIn(**body))
+        appmod.create_passport(
+            appmod.PassportCreateIn(**body),
+            authed_post(owner, "/api/passports"),
+        )
     assert exc_info.value.status_code == 422
 
 
-def test_create_defaults_to_demo_shop_and_trims_name(isolated_db):
-    seed_shop()
-    created = create_passport(lender_name="  KCB  ", expires_in_days=30)
+def test_create_trims_name_and_defaults_to_full_scope(isolated_db, monkeypatch):
+    owner = make_owner(monkeypatch)
+    seed_shop(owner["shop_id"])
+    created = create_passport(owner, lender_name="  KCB  ", expires_in_days=30)
 
-    listed = appmod.list_passports()
+    listed = appmod.list_passports(authed_get(owner, "/api/passports"))
     assert created["id"] == listed[0]["id"]
     assert listed[0]["lender_name"] == "KCB"
     assert listed[0]["scope"] == ["score", "loan", "performance"]

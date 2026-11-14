@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 import app as appmod
 import db
+import helpers
 from services import credit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -218,15 +219,24 @@ def test_demo_shop_name_matches_seeder():
 def use_temp_db(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "credit.db")
     db.init_db()
+    appmod._rate_limit_hits.clear()
+    appmod._api_rate_limit_hits.clear()
 
 
-def insert_shop(name):
+def insert_shop(name, is_demo=0):
     with db.get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO shops (name, location, created_at) VALUES (?, ?, ?)",
-            (name, "test", AS_OF.isoformat()),
+            "INSERT INTO shops (name, location, is_demo, created_at) VALUES (?, ?, ?, ?)",
+            (name, "test", is_demo, AS_OF.isoformat()),
         )
         return cur.lastrowid
+
+
+def make_account(monkeypatch, phone="0711111111"):
+    return helpers.register_account(
+        monkeypatch, phone=phone, pin="482917",
+        shop_name="Credit Duka", ip="10.15.0.1",
+    )
 
 
 def insert_tx(shop_id, offset, kind="sale", amount=100, cp=None, confirmed=1):
@@ -252,21 +262,24 @@ def insert_tx(shop_id, offset, kind="sale", amount=100, cp=None, confirmed=1):
 
 def test_endpoint_insufficient_data(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
-    shop_id = insert_shop("Tiny Duka")
+    account = make_account(monkeypatch)
     for offset in range(10):
-        insert_tx(shop_id, offset)
+        insert_tx(account["shop_id"], offset)
 
-    result = appmod.credit_summary(shop_id=shop_id, as_of=AS_OF.isoformat())
+    result = appmod.credit_summary(
+        as_of=AS_OF.isoformat(),
+        request=helpers.authed("/api/credit/summary", account),
+    )
 
     assert result["status"] == "insufficient_data"
-    assert result["shop_id"] == shop_id
+    assert result["shop_id"] == account["shop_id"]
     assert result["disclaimer"] == credit.DISCLAIMER
     assert result["safe_loan_kes"] == 0
 
 
 def test_endpoint_scored_shape(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
-    shop_id = insert_shop(credit.DEMO_SHOP_NAME)
+    shop_id = insert_shop(credit.DEMO_SHOP_NAME, is_demo=1)
     for offset in range(40):
         insert_tx(shop_id, offset, amount=200)
         insert_tx(shop_id, offset, amount=100)
@@ -319,11 +332,11 @@ def test_weekly_series_buckets():
 
 def test_weekly_endpoint_defaults_to_demo(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
-    shop_id = insert_shop(credit.DEMO_SHOP_NAME)
+    shop_id = insert_shop(credit.DEMO_SHOP_NAME, is_demo=1)
     insert_tx(shop_id, 53, "sale", 1000)
     insert_tx(shop_id, 53, "purchase", 400)
-    other_id = insert_shop("Other Duka")
-    insert_tx(other_id, 53, "sale", 50)
+    other = make_account(monkeypatch, phone="0722222222")
+    insert_tx(other["shop_id"], 53, "sale", 50)
 
     result = appmod.dashboard_weekly(as_of=AS_OF.isoformat())
 
@@ -332,18 +345,19 @@ def test_weekly_endpoint_defaults_to_demo(monkeypatch, tmp_path):
     assert len(result["weeks"]) == 8
     assert result["weeks"][0]["sales_kes"] == 1000
     assert result["weeks"][0]["purchases_kes"] == 400
-    explicit = appmod.dashboard_weekly(shop_id=other_id, as_of=AS_OF.isoformat())
+    explicit = appmod.dashboard_weekly(
+        as_of=AS_OF.isoformat(),
+        request=helpers.authed("/api/dashboard/weekly", other),
+    )
+    assert explicit["shop_id"] == other["shop_id"]
     assert explicit["weeks"][0]["sales_kes"] == 50
 
 
 def test_weekly_endpoint_errors(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
     with pytest.raises(HTTPException) as exc_info:
-        appmod.dashboard_weekly(shop_id=1, as_of="yesterday")
+        appmod.dashboard_weekly(as_of="yesterday")
     assert exc_info.value.status_code == 400
-    with pytest.raises(HTTPException) as exc_info:
-        appmod.dashboard_weekly(shop_id=4242)
-    assert exc_info.value.status_code == 404
     with pytest.raises(HTTPException) as exc_info:
         appmod.dashboard_weekly()
     assert exc_info.value.status_code == 404
@@ -352,11 +366,8 @@ def test_weekly_endpoint_errors(monkeypatch, tmp_path):
 def test_endpoint_bad_date_and_missing_shop(monkeypatch, tmp_path):
     use_temp_db(monkeypatch, tmp_path)
     with pytest.raises(HTTPException) as exc_info:
-        appmod.credit_summary(shop_id=1, as_of="not-a-date")
+        appmod.credit_summary(as_of="not-a-date")
     assert exc_info.value.status_code == 400
-    with pytest.raises(HTTPException) as exc_info:
-        appmod.credit_summary(shop_id=999)
-    assert exc_info.value.status_code == 404
     with pytest.raises(HTTPException) as exc_info:
         appmod.credit_summary()
     assert exc_info.value.status_code == 404
