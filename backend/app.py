@@ -11,7 +11,9 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from auth_routes import router as auth_router
 from db import GLOBAL_USAGE_SHOP_ID, get_connection, init_db
+from services.auth import client_ip as _client_ip
 from services.credit import (
     DEMO_SHOP_NAME,
     assess_shop,
@@ -97,6 +99,7 @@ def ensure_demo_seed() -> None:
 
 
 app = FastAPI(title="Duka-Yangu API", lifespan=lifespan)
+app.include_router(auth_router)
 
 
 class EntryIn(BaseModel):
@@ -155,21 +158,6 @@ def _frontend_dist() -> Path:
 def _utcnow() -> datetime:
     """Current UTC time. Monkeypatchable so tests can control the clock."""
     return datetime.now(timezone.utc)
-
-
-def _client_ip(request: Request | None) -> str:
-    """Real client IP behind Modal's proxy.
-
-    Modal's docs ("Client IP address" under Web Functions) give exactly
-    this: the proxy delivers the real client address as request.client.host.
-    Proxy headers such as X-Forwarded-For are never trusted here, since a
-    client can forge them.
-    """
-    client = getattr(request, "client", None)
-    host = getattr(client, "host", None)
-    if host:
-        return host
-    return "unknown"
 
 
 def _rate_limited(ip: str, now: datetime) -> bool:
