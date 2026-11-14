@@ -1,7 +1,8 @@
 # Duka-Yangu v2 plan — real accounts and per-shop data isolation
 
-Status: planning only. No code was written, nothing was deployed to Modal,
-and nothing was committed in this step.
+Status: build steps 1–2 (dependencies, schema) implemented; no
+endpoints scoped, no behavior changed. Nothing deployed to Modal,
+nothing committed.
 
 Working assumption: this plan targets the `v2` branch. Git could not be
 consulted from this environment (ownership block), so confirm with
@@ -58,6 +59,11 @@ consulted from this environment (ownership block), so confirm with
   out of JavaScript reach, so ordinary XSS cannot steal it; CSRF is
   contained because the API is same-origin-only and a Lax cookie is
   never sent cross-site.
+- Defense in depth on the cookie: every state-changing request must
+  also verify the `Origin` header matches our own origin (reject when
+  missing or foreign), and the cookie itself is set HttpOnly,
+  SameSite=Lax, and Secure (production HTTPS; local http development
+  takes an explicit non-Secure exception, never the reverse).
 - The token is signed with the server secret (see §6) and carries only
   `{session_id, shop_id, exp}`, with 30-day expiry. Sessions are also
   recorded server-side in a new `sessions` table (token hash, user,
@@ -73,7 +79,11 @@ consulted from this environment (ownership block), so confirm with
   victim logging in from elsewhere is unaffected. Counters live in a
   `login_throttles(phone, ip, fails, locked_until)` table so restarts
   do not clear them. The existing per-IP sliding-window limit stays as
-  a backstop against one IP spraying many numbers. Failures return a
+  a backstop against one IP spraying many numbers. On top of both, a
+  high per-phone ceiling across all IPs (for example 30 failures in
+  24 hours, counted from timestamped attempts): beyond it every attempt
+  for that phone is slowed sharply or needs the operator, so rotating
+  IPs cannot brute-force a 6-digit PIN. Failures return a
   generic 401 that does not reveal whether the phone is registered
   (verify a dummy hash for unknown phones).
 - Account recovery (pilot, no SMS): manual operator reset, in person

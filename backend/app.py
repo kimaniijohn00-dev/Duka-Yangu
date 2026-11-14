@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from db import get_connection, init_db
+from db import GLOBAL_USAGE_SHOP_ID, get_connection, init_db
 from services.credit import (
     DEMO_SHOP_NAME,
     assess_shop,
@@ -220,16 +220,16 @@ def _try_consume_ai_call(conn, now: datetime) -> bool:
     """
     day = now.date().isoformat()
     row = conn.execute(
-        "SELECT count FROM usage_counters WHERE day = ? AND name = ?",
-        (day, DAILY_AI_COUNTER),
+        "SELECT count FROM usage_counters WHERE day = ? AND name = ? AND shop_id = ?",
+        (day, DAILY_AI_COUNTER, GLOBAL_USAGE_SHOP_ID),
     ).fetchone()
     used = row["count"] if row is not None else 0
     if used >= _daily_ai_cap():
         return False
     conn.execute(
-        "INSERT INTO usage_counters (day, name, count) VALUES (?, ?, 1)"
-        " ON CONFLICT(day, name) DO UPDATE SET count = count + 1",
-        (day, DAILY_AI_COUNTER),
+        "INSERT INTO usage_counters (day, name, shop_id, count) VALUES (?, ?, ?, 1)"
+        " ON CONFLICT(day, name, shop_id) DO UPDATE SET count = count + 1",
+        (day, DAILY_AI_COUNTER, GLOBAL_USAGE_SHOP_ID),
     )
     return True
 

@@ -55,6 +55,8 @@ PYTHON_PACKAGES = [
     "pytest",
     "httpx",
     "python-multipart",
+    "argon2-cffi==25.1.0",
+    "itsdangerous==2.2.0",
 ]
 
 
