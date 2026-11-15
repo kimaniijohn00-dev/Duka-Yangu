@@ -144,18 +144,18 @@ function LedgerGroups({ ledger }: { ledger: Entry[] }): JSX.Element {
           <ul className="ledger-list">
             {rows.map((entry) => (
               <li key={entry.id} className="ledger-row">
-                <div className="ledger-main">
+                <div className="ledger-left">
                   <span className={`badge badge-${entry.type}`}>
                     {TYPE_LABELS[entry.type]}
                   </span>
-                  <span className="ledger-item">
-                    {formatQuantity(entry.quantity)} {entry.unit} {entry.item}
-                  </span>
+                  <div className="ledger-details">
+                    <span className="ledger-item">
+                      {formatQuantity(entry.quantity)} {entry.unit} {entry.item}
+                    </span>
+                    <span className="ledger-meta">{formatWhen(entry.occurred_at)}</span>
+                  </div>
                 </div>
-                <div className="ledger-sub">
-                  <strong>{formatKES(entry.amount_kes)}</strong>
-                  <span className="ledger-when">{formatWhen(entry.occurred_at)}</span>
-                </div>
+                <strong className="ledger-amount">{formatKES(entry.amount_kes)}</strong>
               </li>
             ))}
           </ul>
@@ -189,9 +189,77 @@ function MicIcon(): JSX.Element {
   )
 }
 
+function TabIcon({ kind }: { kind: 'entries' | 'credit' | 'passport' }): JSX.Element {
+  if (kind === 'entries') {
+    return (
+      <svg className="tab-icon" viewBox="0 0 20 20" aria-hidden="true">
+        <path
+          d="M4 5.5h12M4 10h12M4 14.5h7"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    )
+  }
+  if (kind === 'credit') {
+    return (
+      <svg className="tab-icon" viewBox="0 0 20 20" aria-hidden="true">
+        <path
+          d="M3.5 14.5a7 7 0 0 1 13 0"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M10 14.5l3.5-4.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <circle cx="10" cy="14.5" r="1.2" fill="currentColor" />
+      </svg>
+    )
+  }
+  return (
+    <svg className="tab-icon" viewBox="0 0 20 20" aria-hidden="true">
+      <rect
+        x="3"
+        y="5.5"
+        width="14"
+        height="9"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <circle cx="7.5" cy="10" r="1.6" fill="currentColor" />
+      <path
+        d="M11.5 8.5H16M11.5 11.5H16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 export default function App(): JSX.Element {
   const online = useOnline()
   const [tab, setTab] = useState<'entries' | 'credit' | 'passport'>('entries')
+  // Theme lives only in memory: the OS preference chooses the first value,
+  // and the header toggle flips it for this page load. Nothing is stored.
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light',
+  )
   const lenderToken = lenderTokenFromPath()
   // Session profile only (shop name for the header): the session token
   // itself lives in the HttpOnly cookie and never touches JS state.
@@ -217,7 +285,7 @@ export default function App(): JSX.Element {
   }, [])
   if (lenderToken) {
     return (
-      <main className="app app-lender">
+      <main className="app app-lender" data-theme={theme}>
         <LenderPassport token={lenderToken} />
       </main>
     )
@@ -520,10 +588,22 @@ export default function App(): JSX.Element {
 
   if (!authChecked) {
     return (
-      <main className="app">
+      <main className="app" data-theme={theme}>
         <header className="app-header">
-          <h1>Duka-Yangu</h1>
-          <p className="tagline">Type what happened. Confirm. Done.</p>
+          <div className="topbar">
+            <h1 className="brand">{STR.app.name}</h1>
+            <div className="account">
+              <button
+                type="button"
+                className="theme-toggle"
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                aria-pressed={theme === 'dark'}
+              >
+                {theme === 'dark' ? STR.app.themeLight : STR.app.themeDark}
+              </button>
+            </div>
+          </div>
+          <p className="tagline">{STR.app.tagline}</p>
         </header>
         <p className="message">{STR.common.loading}</p>
       </main>
@@ -531,11 +611,19 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <main className="app">
+    <main className="app" data-theme={theme}>
       <header className="app-header">
         <div className="topbar">
           <h1 className="brand">{STR.app.name}</h1>
           <div className="account">
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              aria-pressed={theme === 'dark'}
+            >
+              {theme === 'dark' ? STR.app.themeLight : STR.app.themeDark}
+            </button>
             {me ? (
               <>
                 <span className="shop-name">
@@ -580,7 +668,8 @@ export default function App(): JSX.Element {
           aria-selected={tab === 'entries'}
           onClick={() => setTab('entries')}
         >
-          {STR.app.tabs.entries}
+          <TabIcon kind="entries" />
+          <span>{STR.app.tabs.entries}</span>
         </button>
         <button
           type="button"
@@ -589,7 +678,8 @@ export default function App(): JSX.Element {
           aria-selected={tab === 'credit'}
           onClick={() => setTab('credit')}
         >
-          {STR.app.tabs.credit}
+          <TabIcon kind="credit" />
+          <span>{STR.app.tabs.credit}</span>
         </button>
         <button
           type="button"
@@ -598,26 +688,14 @@ export default function App(): JSX.Element {
           aria-selected={tab === 'passport'}
           onClick={() => setTab('passport')}
         >
-          {STR.app.tabs.passport}
+          <TabIcon kind="passport" />
+          <span>{STR.app.tabs.passport}</span>
         </button>
       </nav>
 
       {tab === 'entries' ? (
         me ? (
         <div className="entries-layout">
-      <section className="card entries-totals" aria-label={STR.entries.todayTotals}>
-        <div className="totals">
-          <div className="total">
-            <span className="total-label">{STR.entries.todaySales}</span>
-            <strong>{formatKES(todaySales)}</strong>
-          </div>
-          <div className="total">
-            <span className="total-label">{STR.entries.todaySpent}</span>
-            <strong>{formatKES(todaySpent)}</strong>
-          </div>
-        </div>
-      </section>
-
       <div className="entries-columns">
         <div className="entries-primary">
       <section className="card" aria-label="New entry">
@@ -628,21 +706,36 @@ export default function App(): JSX.Element {
             onClick={() => void handleMic()}
             disabled={voice === 'working' || entryLoading}
             aria-label={
-              voice === 'recording' ? STR.entries.micListening : STR.entries.micLabel
+              voice === 'recording' ? STR.entries.micStop : STR.entries.micHeroLabel
             }
           >
             <MicIcon />
           </button>
           {voice === 'recording' ? (
-            <p className="mic-timer" role="timer" aria-label={STR.entries.micListening}>
-              {formatVoiceTime(voiceSecs)}
-            </p>
+            <>
+              <p className="mic-timer" role="timer" aria-label={STR.entries.micListening}>
+                {formatVoiceTime(voiceSecs)}
+              </p>
+              <button
+                type="button"
+                className="btn secondary block mic-stop"
+                onClick={() => void stopVoice()}
+                disabled={entryLoading}
+              >
+                {STR.entries.micStop}
+              </button>
+            </>
           ) : (
-            <p className="mic-caption">{STR.entries.micHint}</p>
+            <p className="mic-caption">
+              {voice === 'working' ? STR.entries.voiceWorking : STR.entries.micHeroLabel}
+            </p>
           )}
         </div>
+        <div className="divider" aria-hidden="true">
+          <span>{STR.entries.typeDivider}</span>
+        </div>
         <label className="field-label" htmlFor="entry-text">
-          {STR.entries.micLabel}
+          {STR.entries.typeLabel}
         </label>
         <textarea
           id="entry-text"
@@ -669,11 +762,6 @@ export default function App(): JSX.Element {
             {entryLoading ? STR.entries.checking : STR.entries.add}
           </button>
         </div>
-        {voice === 'working' && (
-          <p className="voice-status" role="status">
-            {STR.entries.voiceWorking}
-          </p>
-        )}
         {voiceError && (
           <div>
             <p className="message error" role="alert">
@@ -770,9 +858,11 @@ export default function App(): JSX.Element {
               </div>
             </div>
           ) : (
-            <button type="button" className="btn secondary" onClick={startEdit}>
-              {STR.common.edit}
-            </button>
+            <div className="row">
+              <button type="button" className="btn secondary block" onClick={startEdit}>
+                {STR.common.edit}
+              </button>
+            </div>
           )}
 
           {confirmError && (
@@ -814,35 +904,49 @@ export default function App(): JSX.Element {
         </section>
       )}
         </div>
+      <section className="card entries-totals" aria-label={STR.entries.todayTotals}>
+        <div className="totals">
+          <div className="total">
+            <span className="total-label">{STR.entries.todaySales}</span>
+            <strong>{formatKES(todaySales)}</strong>
+          </div>
+          <div className="total">
+            <span className="total-label">{STR.entries.todaySpent}</span>
+            <strong>{formatKES(todaySpent)}</strong>
+          </div>
+        </div>
+      </section>
         <div className="entries-ledger">
       <section className="card" aria-label={STR.entries.ledgerTitle}>
         <h2>{STR.entries.ledgerTitle}</h2>
 
-        {ledgerLoading && (
-          <div aria-label={STR.entries.ledgerLoading}>
-            <p className="skeleton skeleton-big" aria-hidden="true">…</p>
-            <p className="skeleton skeleton-text" aria-hidden="true">…</p>
-            <p className="skeleton skeleton-text" aria-hidden="true">…</p>
-          </div>
-        )}
-        {!ledgerLoading && ledgerError && (
-          <div>
-            <p className="message error" role="alert">
-              {ledgerError}
-            </p>
-            <button type="button" className="btn secondary" onClick={() => void loadLedger()}>
-              {STR.common.retry}
-            </button>
-          </div>
-        )}
-        {!ledgerLoading && !ledgerError && ledger.length === 0 && (
-          <div className="empty-state">
-            <p>{STR.entries.ledgerEmpty}</p>
-          </div>
-        )}
-        {!ledgerLoading && !ledgerError && ledger.length > 0 && (
-          <LedgerGroups ledger={ledger} />
-        )}
+        <div className="ledger-scroll">
+          {ledgerLoading && (
+            <div aria-label={STR.entries.ledgerLoading}>
+              <p className="skeleton skeleton-big" aria-hidden="true">…</p>
+              <p className="skeleton skeleton-text" aria-hidden="true">…</p>
+              <p className="skeleton skeleton-text" aria-hidden="true">…</p>
+            </div>
+          )}
+          {!ledgerLoading && ledgerError && (
+            <div>
+              <p className="message error" role="alert">
+                {ledgerError}
+              </p>
+              <button type="button" className="btn secondary" onClick={() => void loadLedger()}>
+                {STR.common.retry}
+              </button>
+            </div>
+          )}
+          {!ledgerLoading && !ledgerError && ledger.length === 0 && (
+            <div className="empty-state">
+              <p>{STR.entries.ledgerEmpty}</p>
+            </div>
+          )}
+          {!ledgerLoading && !ledgerError && ledger.length > 0 && (
+            <LedgerGroups ledger={ledger} />
+          )}
+        </div>
       </section>
         </div>
       </div>
