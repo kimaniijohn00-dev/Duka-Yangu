@@ -1,6 +1,7 @@
 // Shared credit visuals: the Credit tab and the lender passport page render
 // the same score ring, factor bars and loan card from these components.
 import { formatKES } from './format'
+import { STR } from './strings'
 import type {
   CreditFactor,
   PassportPerformance,
@@ -35,7 +36,7 @@ export function ScoreRing({
         role="img"
         aria-label={`Credit score ${score} out of 100, band ${band}`}
       >
-        <circle cx="75" cy="75" r={radius} fill="none" stroke="#e3e9e3" strokeWidth="14" />
+        <circle cx="75" cy="75" r={radius} fill="none" style={{ stroke: 'var(--track)' }} strokeWidth="14" />
         <circle
           cx="75"
           cy="75"
@@ -54,7 +55,7 @@ export function ScoreRing({
           / 100
         </text>
       </svg>
-      <p className="band" style={{ color }}>
+      <p className="band">
         {band}
       </p>
     </div>
@@ -84,6 +85,37 @@ export function FactorBars({ factors }: { factors: CreditFactor[] }): JSX.Elemen
           </div>
           <p className="factor-expl">{factor.explanation}</p>
         </div>
+      ))}
+    </div>
+  )
+}
+
+/** Same factors, one per collapsible row — scannable on a small screen. */
+export function FactorAccordion({ factors }: { factors: CreditFactor[] }): JSX.Element {
+  return (
+    <div className="accordion">
+      {factors.map((factor) => (
+        <details className="accordion-item" key={factor.name}>
+          <summary>
+            <span>{factor.name}</span>
+            <span className="factor-points">
+              {factor.points}/{factor.max_points}
+            </span>
+          </summary>
+          <div className="accordion-body">
+            <div
+              className="bar"
+              role="img"
+              aria-label={`${factor.name}: ${factor.points} of ${factor.max_points} points`}
+            >
+              <div
+                className="fill"
+                style={{ width: `${(factor.points / factor.max_points) * 100}%` }}
+              />
+            </div>
+            <p className="factor-expl">{factor.explanation}</p>
+          </div>
+        </details>
       ))}
     </div>
   )
@@ -126,7 +158,7 @@ function SalesBars({ weeks }: { weeks: PassportWeeklySale[] }): JSX.Element {
       height={height + 22}
       viewBox={`0 0 ${width} ${height + 22}`}
       role="img"
-      aria-label="Weekly sales for the last 8 weeks"
+      aria-label={STR.credit.weeklySalesChart}
     >
       {weeks.map((week, index) => {
         const barH = Math.round((week.sales_kes / max) * height)
@@ -162,32 +194,32 @@ export function PerformanceSummary({
     <div>
       <div className="totals">
         <div className="total">
-          <span className="total-label">Sales, 60 days</span>
+          <span className="total-label">{STR.credit.sales60}</span>
           <strong>{formatKES(performance.total_sales_kes)}</strong>
         </div>
         <div className="total">
-          <span className="total-label">Stock, 60 days</span>
+          <span className="total-label">{STR.credit.stock60}</span>
           <strong>{formatKES(performance.total_purchases_kes)}</strong>
         </div>
       </div>
       <div className="totals">
         <div className="total">
-          <span className="total-label">Costs, 60 days</span>
+          <span className="total-label">{STR.credit.costs60}</span>
           <strong>{formatKES(performance.total_expenses_kes)}</strong>
         </div>
         <div className="total">
-          <span className="total-label">Net margin</span>
+          <span className="total-label">{STR.credit.netMargin}</span>
           <strong>{performance.net_margin_pct}%</strong>
         </div>
       </div>
       <p>
-        Outstanding customer credit:{' '}
+        {STR.credit.outstandingCredit}{' '}
         <strong>{formatKES(performance.outstanding_credit_kes)}</strong>
       </p>
       <figure className="chart">
         <div className="legend">
           <span className="legend-item">
-            <span className="swatch sales" aria-hidden="true" /> Weekly sales
+            <span className="swatch sales" aria-hidden="true" /> {STR.credit.weeklySales}
           </span>
         </div>
         <SalesBars weeks={performance.weekly_sales_kes} />

@@ -14,6 +14,7 @@ import Credit from './Credit'
 import { formatKES } from './format'
 import LenderPassport from './LenderPassport'
 import Passport from './Passport'
+import { STR } from './strings'
 import type { Entry, EntryType } from './types'
 import { VOICE_MAX_SECONDS, VoiceRecorder } from './voice'
 import './styles.css'
@@ -24,13 +25,7 @@ function lenderTokenFromPath(): string | null {
   return match ? decodeURIComponent(match[1]) : null
 }
 
-const TYPE_LABELS: Record<EntryType, string> = {
-  sale: 'Sale',
-  purchase: 'Purchase',
-  expense: 'Expense',
-  credit_given: 'Credit given',
-  credit_received: 'Credit received',
-}
+const TYPE_LABELS: Record<EntryType, string> = STR.entries.types
 
 function formatQuantity(quantity: number): string {
   return Number.isInteger(quantity) ? String(quantity) : String(quantity)
@@ -91,6 +86,85 @@ function formatWhen(iso: string): string {
   })
 }
 
+/** Group ledger rows under "Today", "Yesterday", or a plain date. */
+function dayLabel(iso: string): string {
+  const d = new Date(iso)
+  const now = new Date()
+  const startOf = (x: Date): number =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diffDays = Math.round(
+    (startOf(now) - startOf(d)) / (24 * 60 * 60 * 1000),
+  )
+  if (diffDays <= 0) return 'Today'
+  if (diffDays === 1) return 'Yesterday'
+  return d.toLocaleDateString('en-KE', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
+function dayKey(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+/** True while the browser thinks it is online; false shows the banner. */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(
+    () => (typeof navigator === 'undefined' ? true : navigator.onLine),
+  )
+  useEffect(() => {
+    const goOnline = (): void => setOnline(true)
+    const goOffline = (): void => setOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
+  return online
+}
+
+/** Ledger rows grouped under Today / Yesterday / date headings. */
+function LedgerGroups({ ledger }: { ledger: Entry[] }): JSX.Element {
+  const groups = new Map<string, Entry[]>()
+  for (const entry of ledger) {
+    const key = dayKey(entry.occurred_at)
+    const list = groups.get(key)
+    if (list) list.push(entry)
+    else groups.set(key, [entry])
+  }
+  return (
+    <>
+      {[...groups.values()].map((rows) => (
+        <div className="day-group" key={dayKey(rows[0].occurred_at)}>
+          <h3>{dayLabel(rows[0].occurred_at)}</h3>
+          <ul className="ledger-list">
+            {rows.map((entry) => (
+              <li key={entry.id} className="ledger-row">
+                <div className="ledger-main">
+                  <span className={`badge badge-${entry.type}`}>
+                    {TYPE_LABELS[entry.type]}
+                  </span>
+                  <span className="ledger-item">
+                    {formatQuantity(entry.quantity)} {entry.unit} {entry.item}
+                  </span>
+                </div>
+                <div className="ledger-sub">
+                  <strong>{formatKES(entry.amount_kes)}</strong>
+                  <span className="ledger-when">{formatWhen(entry.occurred_at)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </>
+  )
+}
+
 function MicIcon(): JSX.Element {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
@@ -116,6 +190,7 @@ function MicIcon(): JSX.Element {
 }
 
 export default function App(): JSX.Element {
+  const online = useOnline()
   const [tab, setTab] = useState<'entries' | 'credit' | 'passport'>('entries')
   const lenderToken = lenderTokenFromPath()
   // Session profile only (shop name for the header): the session token
@@ -203,7 +278,7 @@ export default function App(): JSX.Element {
   }
 
   function handleUnauthorized(): void {
-    clearShopData('Your session expired. Log in again.')
+    clearShopData(STR.app.sessionExpired)
   }
 
   function handleLoggedIn(session: Session): void {
@@ -323,7 +398,7 @@ export default function App(): JSX.Element {
 
   async function handleAdd(): Promise<void> {
     if (!text.trim()) {
-      setEntryError('Type what happened first, e.g. “sold 5kg sugar for 800 bob”.')
+      setEntryError(STR.entries.typeFirst)
       return
     }
     setEntryLoading(true)
@@ -373,7 +448,7 @@ export default function App(): JSX.Element {
       let valid = true
       item = editItem.trim()
       if (!item) {
-        setEditItemError('Give the item a name — e.g. sugar, bread, airtime.')
+        setEditItemError(STR.entries.itemRequired)
         valid = false
       } else {
         setEditItemError(null)
@@ -385,19 +460,19 @@ export default function App(): JSX.Element {
         !Number.isFinite(quantity) ||
         quantity <= 0
       ) {
-        setEditQuantityError('Quantity must be a number greater than 0.')
+        setEditQuantityError(STR.entries.quantityInvalid)
         valid = false
       } else {
         setEditQuantityError(null)
       }
       const amountRaw = editAmount.trim()
       if (!/^\d+$/.test(amountRaw)) {
-        setEditAmountError('Amount must be a whole number, like 800.')
+        setEditAmountError(STR.entries.amountInvalid)
         valid = false
       } else {
         amountKes = Number(amountRaw)
         if (amountKes < 1) {
-          setEditAmountError('Amount must be greater than 0.')
+          setEditAmountError(STR.entries.amountInvalid)
           valid = false
         } else {
           setEditAmountError(null)
@@ -450,7 +525,7 @@ export default function App(): JSX.Element {
           <h1>Duka-Yangu</h1>
           <p className="tagline">Type what happened. Confirm. Done.</p>
         </header>
-        <p className="message">Checking your session…</p>
+        <p className="message">{STR.common.loading}</p>
       </main>
     )
   }
@@ -458,17 +533,17 @@ export default function App(): JSX.Element {
   return (
     <main className="app">
       <header className="app-header">
-        <h1>Duka-Yangu</h1>
-        <p className="tagline">Type what happened. Confirm. Done.</p>
+        <h1>{STR.app.name}</h1>
+        <p className="tagline">{STR.app.tagline}</p>
         {me ? (
           <p className="shop-line">
-            {me.shop_name}{' '}
+            {STR.app.loggedInAs}: {me.shop_name}{' '}
             <button
               type="button"
               className="btn linklike"
               onClick={() => void handleLogout()}
             >
-              Log out
+              {STR.app.logout}
             </button>
           </p>
         ) : (
@@ -481,25 +556,64 @@ export default function App(): JSX.Element {
                 setTab('entries')
               }}
             >
-              Log in
+              {STR.app.login}
             </button>
           </p>
         )}
       </header>
 
+      {!online && (
+        <p className="offline-banner" role="status">
+          {STR.app.offline}
+        </p>
+      )}
+
       {tab === 'entries' ? (
         me ? (
         <>
+      <section className="card" aria-label={STR.entries.todayTotals}>
+        <div className="totals">
+          <div className="total">
+            <span className="total-label">{STR.entries.todaySales}</span>
+            <strong>{formatKES(todaySales)}</strong>
+          </div>
+          <div className="total">
+            <span className="total-label">{STR.entries.todaySpent}</span>
+            <strong>{formatKES(todaySpent)}</strong>
+          </div>
+        </div>
+      </section>
+
       <section className="card" aria-label="New entry">
+        <div className="mic-hero">
+          <button
+            type="button"
+            className={voice === 'recording' ? 'mic-btn recording' : 'mic-btn'}
+            onClick={() => void handleMic()}
+            disabled={voice === 'working' || entryLoading}
+            aria-label={
+              voice === 'recording' ? STR.entries.micListening : STR.entries.micLabel
+            }
+          >
+            <MicIcon />
+          </button>
+          {voice === 'recording' ? (
+            <p className="mic-timer" role="timer" aria-label={STR.entries.micListening}>
+              {formatVoiceTime(voiceSecs)}
+            </p>
+          ) : (
+            <p className="mic-caption">{STR.entries.micHint}</p>
+          )}
+        </div>
         <label className="field-label" htmlFor="entry-text">
-          New entry
+          {STR.entries.micLabel}
         </label>
         <textarea
           id="entry-text"
           ref={entryBoxRef}
           className="entry-box"
           rows={3}
-          placeholder="e.g. sold 5kg sugar for 800 bob"
+          placeholder={STR.entries.typePlaceholder}
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={entryLoading}
@@ -516,49 +630,29 @@ export default function App(): JSX.Element {
             onClick={() => void handleAdd()}
             disabled={entryLoading || !text.trim()}
           >
-            {entryLoading ? 'Reading…' : 'Add'}
-          </button>
-          <button
-            type="button"
-            className={voice === 'recording' ? 'btn mic recording' : 'btn mic'}
-            onClick={() => void handleMic()}
-            disabled={voice === 'working' || entryLoading}
-            title={
-              voice === 'recording'
-                ? 'Stop recording'
-                : 'Record a voice entry'
-            }
-          >
-            <MicIcon />
-            {voice === 'recording'
-              ? `Stop (${formatVoiceTime(voiceSecs)})`
-              : voice === 'working'
-                ? 'Listening…'
-                : 'Voice'}
+            {entryLoading ? STR.entries.checking : STR.entries.add}
           </button>
         </div>
-        {voice === 'recording' && (
-          <p className="voice-status" role="status">
-            <span className="rec-dot" aria-hidden="true" />
-            Recording… {formatVoiceTime(voiceSecs)} — tap Stop when done
-            (max {formatVoiceTime(VOICE_MAX_SECONDS)}).
-          </p>
-        )}
         {voice === 'working' && (
           <p className="voice-status" role="status">
-            Turning speech into text… check the words, then press Add.
+            {STR.entries.voiceWorking}
           </p>
         )}
         {voiceError && (
-          <p className="message error" role="alert">
-            {voiceError}
-          </p>
+          <div>
+            <p className="message error" role="alert">
+              {voiceError}
+            </p>
+            <button type="button" className="btn secondary" onClick={() => void handleMic()}>
+              {STR.common.retry}
+            </button>
+          </div>
         )}
       </section>
 
       {draft && (
-        <section className="card draft" aria-label="Check before saving" aria-live="polite">
-          <h2>Check before saving</h2>
+        <section className="card draft" aria-label={STR.entries.confirmTitle} aria-live="polite">
+          <h2>{STR.entries.confirmTitle}</h2>
           <p className="readback">
             {readBackSentence(
               draft.type,
@@ -573,7 +667,7 @@ export default function App(): JSX.Element {
           {editing ? (
             <div className="edit-form">
               <label className="field-label" htmlFor="edit-item">
-                Item
+                {STR.entries.item}
               </label>
               <input
                 id="edit-item"
@@ -593,7 +687,7 @@ export default function App(): JSX.Element {
               <div className="row">
                 <div className="field">
                   <label className="field-label" htmlFor="edit-quantity">
-                    Quantity ({draft.unit})
+                    {STR.entries.quantity} ({draft.unit})
                   </label>
                   <input
                     id="edit-quantity"
@@ -616,7 +710,7 @@ export default function App(): JSX.Element {
                 </div>
                 <div className="field">
                   <label className="field-label" htmlFor="edit-amount">
-                    Amount (KES)
+                    {STR.entries.amount}
                   </label>
                   <input
                     id="edit-amount"
@@ -641,7 +735,7 @@ export default function App(): JSX.Element {
             </div>
           ) : (
             <button type="button" className="btn secondary" onClick={startEdit}>
-              Edit
+              {STR.common.edit}
             </button>
           )}
 
@@ -657,7 +751,7 @@ export default function App(): JSX.Element {
               onClick={() => void handleConfirm()}
               disabled={confirmLoading}
             >
-              {confirmLoading ? 'Saving…' : 'Confirm'}
+              {confirmLoading ? STR.common.saving : STR.common.confirm}
             </button>
             {!editing && (
               <button
@@ -666,7 +760,7 @@ export default function App(): JSX.Element {
                 onClick={handleCancel}
                 disabled={confirmLoading}
               >
-                Cancel
+                {STR.common.cancelShort}
               </button>
             )}
           </div>
@@ -677,59 +771,40 @@ export default function App(): JSX.Element {
               onClick={handleCancel}
               disabled={confirmLoading}
             >
-              Cancel entry
+              {STR.common.cancel}
             </button>
           )}
-          <p className="hint">Nothing is saved to the ledger until you tap Confirm.</p>
+          <p className="hint">{STR.entries.confirmHint}</p>
         </section>
       )}
 
-      <section className="card" aria-label="Ledger">
-        <h2>Ledger</h2>
-        <div className="totals">
-          <div className="total">
-            <span className="total-label">Sales today</span>
-            <strong>{formatKES(todaySales)}</strong>
-          </div>
-          <div className="total">
-            <span className="total-label">Spent today</span>
-            <strong>{formatKES(todaySpent)}</strong>
-          </div>
-        </div>
+      <section className="card" aria-label={STR.entries.ledgerTitle}>
+        <h2>{STR.entries.ledgerTitle}</h2>
 
-        {ledgerLoading && <p className="message">Loading ledger…</p>}
+        {ledgerLoading && (
+          <div aria-label={STR.entries.ledgerLoading}>
+            <p className="skeleton skeleton-big" aria-hidden="true">…</p>
+            <p className="skeleton skeleton-text" aria-hidden="true">…</p>
+            <p className="skeleton skeleton-text" aria-hidden="true">…</p>
+          </div>
+        )}
         {!ledgerLoading && ledgerError && (
           <div>
             <p className="message error" role="alert">
               {ledgerError}
             </p>
             <button type="button" className="btn secondary" onClick={() => void loadLedger()}>
-              Retry
+              {STR.common.retry}
             </button>
           </div>
         )}
         {!ledgerLoading && !ledgerError && ledger.length === 0 && (
-          <p className="message">Ledger is empty — add your first sale above.</p>
+          <div className="empty-state">
+            <p>{STR.entries.ledgerEmpty}</p>
+          </div>
         )}
         {!ledgerLoading && !ledgerError && ledger.length > 0 && (
-          <ul className="ledger-list">
-            {ledger.map((entry) => (
-              <li key={entry.id} className="ledger-row">
-                <div className="ledger-main">
-                  <span className={`badge badge-${entry.type}`}>
-                    {TYPE_LABELS[entry.type]}
-                  </span>
-                  <span className="ledger-item">
-                    {formatQuantity(entry.quantity)} {entry.unit} {entry.item}
-                  </span>
-                </div>
-                <div className="ledger-sub">
-                  <strong>{formatKES(entry.amount_kes)}</strong>
-                  <span className="ledger-when">{formatWhen(entry.occurred_at)}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <LedgerGroups ledger={ledger} />
         )}
       </section>
         </>
@@ -762,30 +837,33 @@ export default function App(): JSX.Element {
         />
       )}
 
-      <nav className="tabs" aria-label="Sections">
+      <nav className="tabs" aria-label="Sections" role="tablist">
         <button
           type="button"
+          role="tab"
           className={tab === 'entries' ? 'tab active' : 'tab'}
           aria-selected={tab === 'entries'}
           onClick={() => setTab('entries')}
         >
-          Entries
+          {STR.app.tabs.entries}
         </button>
         <button
           type="button"
+          role="tab"
           className={tab === 'credit' ? 'tab active' : 'tab'}
           aria-selected={tab === 'credit'}
           onClick={() => setTab('credit')}
         >
-          Credit
+          {STR.app.tabs.credit}
         </button>
         <button
           type="button"
+          role="tab"
           className={tab === 'passport' ? 'tab active' : 'tab'}
           aria-selected={tab === 'passport'}
           onClick={() => setTab('passport')}
         >
-          Passport
+          {STR.app.tabs.passport}
         </button>
       </nav>
     </main>

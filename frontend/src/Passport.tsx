@@ -6,23 +6,16 @@ import {
   isUnauthorized,
   revokePassport,
 } from './api'
+import { STR } from './strings'
 import type {
   PassportActivity,
   PassportSection,
   ShopPassport,
 } from './types'
 
-const SECTION_LABELS: Record<PassportSection, string> = {
-  score: 'Score',
-  loan: 'Loan estimate',
-  performance: 'Performance summary',
-}
+const SECTION_LABELS: Record<PassportSection, string> = STR.passport.sections
 
-const SECTION_PHRASES: Record<PassportSection, string> = {
-  score: 'your score',
-  loan: 'your loan estimate',
-  performance: 'a performance summary',
-}
+const SECTION_PHRASES: Record<PassportSection, string> = STR.passport.phrases
 
 const SECTION_ORDER: PassportSection[] = ['score', 'loan', 'performance']
 
@@ -106,11 +99,11 @@ export default function Passport({
 
   const consentSentence =
     sections.length === 0
-      ? 'Tick at least one thing to share before creating the link.'
-      : `You are sharing ${joinPhrases(sections.map((s) => SECTION_PHRASES[s]))} ` +
-        `with ${lenderName || 'your lender'} for ${days} days. ` +
-        'They will not see individual sales or customer names. ' +
-        'You can stop this at any time.'
+      ? STR.passport.shareNone
+      : `${STR.passport.sharingStart} ${joinPhrases(sections.map((s) => SECTION_PHRASES[s]))} ` +
+        `${STR.passport.sharingWith} ${lenderName || STR.passport.yourLender} ` +
+        `${STR.passport.sharingFor} ${days} ${STR.passport.sharingDays} ` +
+        `${STR.passport.sharingNoSales} ${STR.passport.sharingStop}`
 
   const loadList = useCallback(async () => {
     setListLoading(true)
@@ -223,23 +216,23 @@ export default function Passport({
 
   return (
     <div>
-      <section className="card" aria-label="Share a passport">
-        <h2>Share a passport</h2>
+      <section className="card" aria-label={STR.passport.shareTitle}>
+        <h2>{STR.passport.shareTitle}</h2>
         <label className="field-label" htmlFor="lender-name">
-          Lender name
+          {STR.passport.lenderName}
         </label>
         <input
           id="lender-name"
           className="text-input"
           type="text"
           maxLength={60}
-          placeholder="e.g. KCB"
+          placeholder={STR.passport.lenderPlaceholder}
           value={lender}
           onChange={(e) => setLender(e.target.value)}
           disabled={creating}
         />
         <fieldset className="check-group">
-          <legend className="field-label">What to share</legend>
+          <legend className="field-label">{STR.passport.whatToShare}</legend>
           {SECTION_ORDER.map((section) => (
             <label className="check-row" key={section}>
               <input
@@ -264,7 +257,7 @@ export default function Passport({
           ))}
         </fieldset>
         <fieldset className="check-group">
-          <legend className="field-label">Link lasts</legend>
+          <legend className="field-label">{STR.passport.linkLasts}</legend>
           <label className="check-row" key="days-7">
             <input
               type="radio"
@@ -273,7 +266,7 @@ export default function Passport({
               onChange={() => setDays(7)}
               disabled={creating}
             />
-            7 days
+            {STR.passport.days7}
           </label>
           <label className="check-row" key="days-30">
             <input
@@ -283,7 +276,7 @@ export default function Passport({
               onChange={() => setDays(30)}
               disabled={creating}
             />
-            30 days
+            {STR.passport.days30}
           </label>
         </fieldset>
         <p className="consent" aria-live="polite">
@@ -301,16 +294,16 @@ export default function Passport({
             onClick={() => void handleCreate()}
             disabled={!canCreate}
           >
-            {creating ? 'Creating…' : 'Create passport link'}
+            {creating ? STR.passport.creating : STR.passport.createButton}
           </button>
         </div>
       </section>
 
       {freshLink && (
-        <section className="card link-card" aria-label="Your new link" aria-live="polite">
-          <h2>Link ready for {freshLink.lender}</h2>
+        <section className="card link-card" aria-label={STR.passport.linkReadyTitle} aria-live="polite">
+          <h2>{STR.passport.linkReadyTitle} {freshLink.lender}</h2>
           <p className="link-once">
-            This link is shown only once. Copy it now.
+            {STR.passport.linkOnce}
           </p>
           <p className="link-box">{freshLink.url}</p>
           <div className="row">
@@ -319,17 +312,17 @@ export default function Passport({
               className="btn secondary"
               onClick={() => void handleCopy()}
             >
-              {copied ? 'Copied!' : 'Copy'}
+              {copied ? STR.passport.copied : STR.passport.copy}
             </button>
             <a
               className="btn secondary"
               href={`https://wa.me/?text=${encodeURIComponent(
-                `Hello ${freshLink.lender}, here is my Duka-Yangu business passport: ${freshLink.url}`,
+                `${STR.passport.whatsappHello} ${freshLink.lender}, ${STR.passport.whatsappIntro} ${freshLink.url}`,
               )}`}
               target="_blank"
               rel="noreferrer"
             >
-              Send on WhatsApp
+              {STR.passport.whatsapp}
             </a>
           </div>
           <button
@@ -337,14 +330,19 @@ export default function Passport({
             className="btn linklike"
             onClick={() => setFreshLink(null)}
           >
-            Done — hide this link
+            {STR.passport.doneHide}
           </button>
         </section>
       )}
 
-      <section className="card" aria-label="Shared passports">
-        <h2>Shared passports</h2>
-        {listLoading && <p className="message">Loading passports…</p>}
+      <section className="card" aria-label={STR.passport.sharedTitle}>
+        <h2>{STR.passport.sharedTitle}</h2>
+        {listLoading && (
+          <div aria-label={STR.passport.linksLoading}>
+            <p className="skeleton skeleton-text" aria-hidden="true">…</p>
+            <p className="skeleton skeleton-text" aria-hidden="true">…</p>
+          </div>
+        )}
         {!listLoading && listError && (
           <div>
             <p className="message error" role="alert">
@@ -355,14 +353,14 @@ export default function Passport({
               className="btn secondary"
               onClick={() => void loadList()}
             >
-              Retry
+              {STR.common.retry}
             </button>
           </div>
         )}
         {!listLoading && !listError && sorted.length === 0 && (
-          <p className="message">
-            No passports yet — share your first one above.
-          </p>
+          <div className="empty-state">
+            <p>{STR.passport.noLinks}</p>
+          </div>
         )}
         {!listLoading && !listError && sorted.length > 0 && (
           <ul className="passport-list">
@@ -377,21 +375,19 @@ export default function Passport({
                   <span className="passport-top">
                     <strong>{p.lender_name}</strong>
                     <span className={`badge status-${p.status}`}>
-                      {p.status === 'active'
-                        ? 'Active'
-                        : p.status === 'expired'
-                          ? 'Expired'
-                          : 'Revoked'}
+                      {STR.passport.status[
+                        p.status as keyof typeof STR.passport.status
+                      ] ?? p.status}
                     </span>
                   </span>
                   <span className="passport-sub">
                     {p.scope.map((s) => SECTION_LABELS[s]).join(' · ')}
                   </span>
                   <span className="passport-sub">
-                    Expires {formatDate(p.expires_at)} · Viewed{' '}
-                    {p.view_count === 1 ? 'once' : `${p.view_count} times`}
+                    {STR.passport.expires} {formatDate(p.expires_at)} · {STR.passport.viewed}{' '}
+                    {p.view_count === 1 ? STR.passport.viewedOnce : `${p.view_count} ${STR.passport.viewedTimes}`}
                     {p.last_viewed_at
-                      ? `, last ${formatWhen(p.last_viewed_at)}`
+                      ? `, ${STR.passport.lastViewed} ${formatWhen(p.last_viewed_at)}`
                       : ''}
                   </span>
                 </button>
@@ -399,7 +395,7 @@ export default function Passport({
                 {expandedId === p.id && (
                   <div className="passport-detail">
                     {activityLoading && (
-                      <p className="message">Loading views…</p>
+                      <p className="message">{STR.passport.viewsLoading}</p>
                     )}
                     {!activityLoading && activityError && (
                       <p className="message error" role="alert">
@@ -411,13 +407,13 @@ export default function Passport({
                       activity &&
                       (activity.views.length === 0 ? (
                         <p className="message">
-                          No views yet — the lender has not opened the link.
+                          {STR.passport.noViews}
                         </p>
                       ) : (
                         <ul className="activity-list">
                           {activity.views.map((viewedAt, index) => (
                             <li key={`${viewedAt}-${index}`}>
-                              Viewed {formatWhen(viewedAt)}
+                              {STR.passport.viewed} {formatWhen(viewedAt)}
                             </li>
                           ))}
                         </ul>
@@ -429,8 +425,7 @@ export default function Passport({
                   (confirmRevokeId === p.id ? (
                     <div className="confirm-box">
                       <p>
-                        Stop sharing with {p.lender_name}? The link will stop
-                        working immediately.
+                        {STR.passport.revokeTitle} {p.lender_name}? {STR.passport.revokeStops}
                       </p>
                       <div className="row">
                         <button
@@ -439,7 +434,7 @@ export default function Passport({
                           onClick={() => void handleRevoke(p.id)}
                           disabled={revoking}
                         >
-                          {revoking ? 'Stopping…' : 'Yes, stop sharing'}
+                          {revoking ? STR.passport.revoking : STR.passport.revokeYes}
                         </button>
                         <button
                           type="button"
@@ -447,7 +442,7 @@ export default function Passport({
                           onClick={() => setConfirmRevokeId(null)}
                           disabled={revoking}
                         >
-                          Keep sharing
+                          {STR.passport.keepSharing}
                         </button>
                       </div>
                     </div>
@@ -457,7 +452,7 @@ export default function Passport({
                       className="btn secondary"
                       onClick={() => setConfirmRevokeId(p.id)}
                     >
-                      Revoke
+                      {STR.passport.revoke}
                     </button>
                   ))}
               </li>

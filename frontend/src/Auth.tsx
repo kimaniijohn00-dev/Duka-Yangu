@@ -1,14 +1,7 @@
 import { useRef, useState } from 'react'
 import { ApiStatusError, login, register, type Session } from './api'
 import { SUPPORT_CONTACT } from './config'
-
-// Shown for every failed login (401) so the screen never reveals whether
-// a phone number is registered.
-const GENERIC_LOGIN_FAILURE = 'Wrong phone number or PIN. Try again.'
-// Shown for 429 rate limits and after repeated failures.
-const LOCKOUT_MESSAGE = 'Too many tries. Wait a minute before trying again.'
-const REPEATED_HINT =
-  'Too many wrong tries locks the account for a while — wait a bit, then try again.'
+import { STR } from './strings'
 
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, '')
@@ -28,8 +21,11 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [failCount, setFailCount] = useState(0)
+  const [showPin, setShowPin] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   // Uncontrolled inputs: values are read once at submit and never kept
   // in state, so no PIN ever sits in a JS variable, storage, or log.
+  // The toggles above only flip visibility, never the value.
   const phoneRef = useRef<HTMLInputElement>(null)
   const pinRef = useRef<HTMLInputElement>(null)
   const confirmRef = useRef<HTMLInputElement>(null)
@@ -40,33 +36,32 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
     onModeChange(next)
     setError(null)
     setFailCount(0)
+    setShowPin(false)
+    setShowConfirm(false)
   }
 
   function loginMessage(err: unknown): { text: string; failed: boolean } {
     if (err instanceof ApiStatusError) {
       if (err.status === 401 || err.status === 403) {
-        return { text: GENERIC_LOGIN_FAILURE, failed: true }
+        return { text: STR.auth.loginFailed, failed: true }
       }
       if (err.status === 429) {
-        return { text: LOCKOUT_MESSAGE, failed: true }
+        return { text: STR.auth.lockedOut, failed: true }
       }
-      return { text: 'Could not log you in. Try again.', failed: false }
+      return { text: STR.auth.loginGeneric, failed: false }
     }
-    return {
-      text: 'Cannot reach the server. Start the backend, then try again.',
-      failed: false,
-    }
+    return { text: STR.auth.serverUnreachable, failed: false }
   }
 
   async function handleLogin(): Promise<void> {
     const phone = phoneRef.current?.value.trim() ?? ''
     const pin = pinRef.current?.value ?? ''
     if (!phone) {
-      setError('Enter your phone number, e.g. 0712 345 678.')
+      setError(STR.auth.phoneRequired)
       return
     }
     if (!/^\d{6,12}$/.test(pin)) {
-      setError('Enter your 6 to 12 digit PIN.')
+      setError(STR.auth.pinRequired)
       return
     }
     setBusy(true)
@@ -81,7 +76,7 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
         const next = failCount + 1
         setFailCount(next)
         setError(
-          next >= 3 ? `${mapped.text} ${REPEATED_HINT}` : mapped.text,
+          next >= 3 ? `${mapped.text} ${STR.auth.repeatedHint}` : mapped.text,
         )
       } else {
         setError(mapped.text)
@@ -94,7 +89,7 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
   function registerMessage(err: unknown): string {
     if (err instanceof ApiStatusError) {
       if (err.status === 429) {
-        return LOCKOUT_MESSAGE
+        return STR.auth.lockedOut
       }
       if (
         err.status === 422 ||
@@ -103,9 +98,9 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
       ) {
         return err.message
       }
-      return 'Could not create your account. Try again.'
+      return STR.auth.registerGeneric
     }
-    return 'Cannot reach the server. Start the backend, then try again.'
+    return STR.auth.serverUnreachable
   }
 
   async function handleRegister(): Promise<void> {
@@ -115,23 +110,23 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
     const shop = shopRef.current?.value.trim() ?? ''
     const invite = inviteRef.current?.value.trim() ?? ''
     if (!phone) {
-      setError('Enter your phone number, e.g. 0712 345 678.')
+      setError(STR.auth.phoneRequired)
       return
     }
     if (!/^\d{6,12}$/.test(pin)) {
-      setError('Choose a PIN of 6 to 12 digits — avoid 123456 and repeats.')
+      setError(STR.auth.pinRequired)
       return
     }
     if (pin !== confirmPin) {
-      setError('The two PINs do not match. Type them again.')
+      setError(STR.auth.pinsNoMatch)
       return
     }
     if (!shop) {
-      setError('Give your shop a name, e.g. Amina\u2019s Duka.')
+      setError(STR.auth.shopRequired)
       return
     }
     if (!invite) {
-      setError('Enter the invite code. Ask whoever invited you for it.')
+      setError(STR.auth.inviteRequired)
       return
     }
     setBusy(true)
@@ -167,15 +162,13 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
           {notice}
         </p>
       )}
-      <section className="card" aria-label={mode === 'login' ? 'Log in' : 'Register'}>
-        <h2>{mode === 'login' ? 'Log in' : 'Register'}</h2>
+      <section className="card" aria-label={mode === 'login' ? STR.auth.loginTitle : STR.auth.joinTitle}>
+        <h2>{mode === 'login' ? STR.auth.loginTitle : STR.auth.joinTitle}</h2>
         <p className="hint">
-          {mode === 'login'
-            ? 'Use the phone number and PIN you registered with.'
-            : 'One account per shop. No SMS needed — just pick a PIN.'}
+          {mode === 'login' ? STR.auth.loginBody : STR.auth.registerBody}
         </p>
         <label className="field-label" htmlFor="auth-phone">
-          Phone number
+          {STR.auth.phone}
         </label>
         <input
           id="auth-phone"
@@ -183,43 +176,66 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
           className="text-input"
           type="tel"
           autoComplete="tel"
-          placeholder="e.g. 0712 345 678"
+          inputMode="tel"
+          placeholder={STR.auth.phonePlaceholder}
           disabled={busy}
         />
         <label className="field-label" htmlFor="auth-pin">
-          PIN
+          {STR.auth.pin}
         </label>
-        <input
-          id="auth-pin"
-          ref={pinRef}
-          className="text-input"
-          type="password"
-          inputMode="numeric"
-          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-          placeholder="6 to 12 digits"
-          maxLength={12}
-          onChange={(e) => sanitizePin(e.target)}
-          disabled={busy}
-        />
+        <div className="pin-wrap">
+          <input
+            id="auth-pin"
+            ref={pinRef}
+            className="text-input"
+            type={showPin ? 'text' : 'password'}
+            inputMode="numeric"
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            placeholder={STR.auth.pinPlaceholder}
+            maxLength={12}
+            onChange={(e) => sanitizePin(e.target)}
+            disabled={busy}
+          />
+          <button
+            type="button"
+            className="pin-toggle"
+            onClick={() => setShowPin((v) => !v)}
+            aria-label={showPin ? STR.auth.hidePin : STR.auth.showPin}
+            aria-pressed={showPin}
+          >
+            {showPin ? STR.auth.hidePin : STR.auth.showPin}
+          </button>
+        </div>
         {mode === 'register' && (
           <>
             <label className="field-label" htmlFor="auth-confirm">
-              Confirm PIN
+              {STR.auth.confirmPin}
             </label>
-            <input
-              id="auth-confirm"
-              ref={confirmRef}
-              className="text-input"
-              type="password"
-              inputMode="numeric"
-              autoComplete="new-password"
-              placeholder="Type the PIN again"
-              maxLength={12}
-              onChange={(e) => sanitizePin(e.target)}
-              disabled={busy}
-            />
+            <div className="pin-wrap">
+              <input
+                id="auth-confirm"
+                ref={confirmRef}
+                className="text-input"
+                type={showConfirm ? 'text' : 'password'}
+                inputMode="numeric"
+                autoComplete="new-password"
+                placeholder={STR.auth.confirmPinPlaceholder}
+                maxLength={12}
+                onChange={(e) => sanitizePin(e.target)}
+                disabled={busy}
+              />
+              <button
+                type="button"
+                className="pin-toggle"
+                onClick={() => setShowConfirm((v) => !v)}
+                aria-label={showConfirm ? STR.auth.hidePin : STR.auth.showPin}
+                aria-pressed={showConfirm}
+              >
+                {showConfirm ? STR.auth.hidePin : STR.auth.showPin}
+              </button>
+            </div>
             <label className="field-label" htmlFor="auth-shop">
-              Shop name
+              {STR.auth.shopName}
             </label>
             <input
               id="auth-shop"
@@ -228,11 +244,11 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
               type="text"
               maxLength={60}
               autoComplete="organization"
-              placeholder="e.g. Amina’s Duka"
+              placeholder={STR.auth.shopPlaceholder}
               disabled={busy}
             />
             <label className="field-label" htmlFor="auth-invite">
-              Invite code
+              {STR.auth.inviteCode}
             </label>
             <input
               id="auth-invite"
@@ -240,11 +256,11 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
               className="text-input"
               type="text"
               autoComplete="off"
-              placeholder="From whoever invited you"
+              placeholder={STR.auth.invitePlaceholder}
               disabled={busy}
             />
             <p className="hint">
-              No invite code? Ask the Duka-Yangu team for one.
+              {STR.auth.inviteHelp}
               <br />
               {SUPPORT_CONTACT}
             </p>
@@ -265,10 +281,10 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
             disabled={busy}
           >
             {busy
-              ? 'Please wait…'
+              ? STR.auth.pleaseWait
               : mode === 'login'
-                ? 'Log in'
-                : 'Register'}
+                ? STR.auth.loginButton
+                : STR.auth.registerButton}
           </button>
         </div>
         <div className="row">
@@ -278,9 +294,7 @@ export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props
             onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
             disabled={busy}
           >
-            {mode === 'login'
-              ? 'New here? Register instead'
-              : 'Have an account? Log in instead'}
+            {mode === 'login' ? STR.auth.toRegister : STR.auth.toLogin}
           </button>
         </div>
       </section>

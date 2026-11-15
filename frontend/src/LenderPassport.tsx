@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { ApiStatusError, fetchPublicPassport } from './api'
 import { FactorBars, LoanCard, PerformanceSummary, ScoreRing } from './creditShared'
+import { STR } from './strings'
 import type { PassportSnapshot } from './types'
 
 type Problem = 'invalid' | 'gone' | 'busy' | 'offline'
@@ -46,33 +47,33 @@ export default function LenderPassport({ token }: { token: string }): JSX.Elemen
   }, [token])
 
   if (loading) {
-    return <p className="message">Loading this passport…</p>
+    return <p className="message">{STR.lender.loading}</p>
   }
 
   if (problem === 'invalid') {
     return (
-      <section className="card" aria-label="Invalid link">
-        <h2>This link isn&apos;t valid.</h2>
-        <p>Check the link and try again.</p>
+      <section className="card" aria-label={STR.lender.invalidTitle}>
+        <h2>{STR.lender.invalidTitle}</h2>
+        <p>{STR.lender.invalidBody}</p>
       </section>
     )
   }
 
   if (problem === 'gone') {
     return (
-      <section className="card" aria-label="Unavailable passport">
-        <h2>This passport is no longer available.</h2>
-        <p>Ask the shopkeeper for a new link.</p>
+      <section className="card" aria-label={STR.lender.goneTitle}>
+        <h2>{STR.lender.goneTitle}</h2>
+        <p>{STR.lender.goneBody}</p>
       </section>
     )
   }
 
   if (problem === 'busy') {
     return (
-      <section className="card" aria-label="Too many requests">
-        <h2>Too many requests, try again in a minute.</h2>
+      <section className="card" aria-label={STR.lender.busyTitle}>
+        <h2>{STR.lender.busyTitle}</h2>
         <button type="button" className="btn secondary" onClick={() => void load()}>
-          Retry
+          {STR.common.retry}
         </button>
       </section>
     )
@@ -80,11 +81,11 @@ export default function LenderPassport({ token }: { token: string }): JSX.Elemen
 
   if (problem === 'offline' || !snapshot) {
     return (
-      <section className="card" aria-label="Connection problem">
-        <h2>Cannot reach the server.</h2>
-        <p>Check your connection, then try again.</p>
+      <section className="card" aria-label={STR.lender.offlineTitle}>
+        <h2>{STR.lender.offlineTitle}</h2>
+        <p>{STR.lender.offlineBody}</p>
         <button type="button" className="btn secondary" onClick={() => void load()}>
-          Retry
+          {STR.common.retry}
         </button>
       </section>
     )
@@ -93,54 +94,54 @@ export default function LenderPassport({ token }: { token: string }): JSX.Elemen
   return (
     <div>
       <section className="card" aria-label="Shop">
-        <h2>{snapshot.shop_name}</h2>
-        <p className="hint">Prepared on {formatDay(snapshot.generated_at)}</p>
+        <h1>{snapshot.shop_name}</h1>
+        <p className="hint">{STR.lender.preparedOn} {formatDay(snapshot.generated_at)}</p>
         {snapshot.expires_at && (
-          <p className="hint">Valid until {formatDay(snapshot.expires_at)}</p>
+          <p className="hint">{STR.lender.validUntil} {formatDay(snapshot.expires_at)}</p>
         )}
       </section>
 
       {snapshot.is_demo_shop && (
         <p className="demo-banner" role="note">
-          Demo shop with synthetic data
+          {STR.app.demoBanner}
         </p>
       )}
 
       {snapshot.score &&
         (snapshot.score.score !== null && snapshot.score.band ? (
           <>
-            <section className="card score-card" aria-label="Credit score">
+            <section className="card score-card" aria-label={STR.lender.scoreTitle}>
               <ScoreRing score={snapshot.score.score} band={snapshot.score.band} />
             </section>
-            <section className="card" aria-label="Score factors">
-              <h2>What makes the score</h2>
+            <section className="card" aria-label={STR.lender.factorsTitle}>
+              <h2>{STR.lender.factorsTitle}</h2>
               <FactorBars factors={snapshot.score.factors} />
             </section>
           </>
         ) : (
-          <section className="card" aria-label="Credit score">
-            <h2>Score</h2>
-            <p className="message">Not enough history to score this shop yet.</p>
+          <section className="card" aria-label={STR.lender.noScoreTitle}>
+            <h2>{STR.lender.noScoreTitle}</h2>
+            <p className="message">{STR.lender.noScore}</p>
           </section>
         ))}
 
       {snapshot.loan && (
-        <section className="card" aria-label="Safe loan estimate">
-          <h2>Safe loan estimate</h2>
+        <section className="card" aria-label={STR.lender.loanTitle}>
+          <h2>{STR.lender.loanTitle}</h2>
           <LoanCard loan={snapshot.loan} />
         </section>
       )}
 
       {snapshot.performance && (
-        <section className="card" aria-label="Performance summary">
-          <h2>Performance summary</h2>
+        <section className="card" aria-label={STR.lender.performanceTitle}>
+          <h2>{STR.lender.performanceTitle}</h2>
           <PerformanceSummary performance={snapshot.performance} />
         </section>
       )}
 
       <p className="disclaimer">{snapshot.disclaimer}</p>
       <footer className="lender-footer">
-        Shared with the shopkeeper&apos;s consent. Duka-Yangu
+        {STR.lender.sharedWithConsent}
       </footer>
     </div>
   )

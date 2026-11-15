@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { fetchCreditSummary, fetchExplanation, fetchWeekly, isUnauthorized } from './api'
-import { FactorBars, LoanCard, ScoreRing, weekLabel } from './creditShared'
+import { FactorAccordion, LoanCard, ScoreRing, weekLabel } from './creditShared'
 import { formatKES } from './format'
+import { STR } from './strings'
 import type { CreditSummary, Explanation, WeeklyBar } from './types'
 
 interface CreditProps {
@@ -13,7 +14,7 @@ interface CreditProps {
   onUnauthorized: () => void
 }
 
-const DISCLAIMER = 'Estimate only, not a lending decision.'
+const DISCLAIMER = STR.credit.disclaimerFallback
 
 function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }): JSX.Element {
   const costs = (week: WeeklyBar): number => week.purchases_kes + week.expenses_kes
@@ -29,10 +30,10 @@ function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }): JSX.Element {
     <figure className="chart">
       <div className="legend">
         <span className="legend-item">
-          <span className="swatch sales" aria-hidden="true" /> Sales
+          <span className="swatch sales" aria-hidden="true" /> {STR.credit.salesLegend}
         </span>
         <span className="legend-item">
-          <span className="swatch costs" aria-hidden="true" /> Stock + costs
+          <span className="swatch costs" aria-hidden="true" /> {STR.credit.costsLegend}
         </span>
       </div>
       <svg
@@ -40,7 +41,7 @@ function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }): JSX.Element {
         height={height + 22}
         viewBox={`0 0 ${width} ${height + 22}`}
         role="img"
-        aria-label="Weekly sales against stock and costs for the last 8 weeks"
+        aria-label={STR.credit.weeklyChartLabel}
       >
         {weeks.map((week, index) => {
           const x = index * groupWidth
@@ -133,36 +134,42 @@ export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditPr
     <div>
       {demo && (
         <p className="demo-banner" role="note">
-          Demo shop with synthetic data{' '}
+          {STR.app.demoBanner}{' '}
           <button type="button" className="btn linklike" onClick={() => onAuthRequest('login')}>
-            Log in
+            {STR.app.login}
           </button>
         </p>
       )}
       {demo && (
-        <section className="card" aria-label="View your own shop">
-          <h2>Your shop could be here</h2>
-          <p>You are viewing a demo shop. Log in or register to see your own shop&rsquo;s score.</p>
+        <section className="card" aria-label={STR.credit.loginTitle}>
+          <h2>{STR.credit.loginTitle}</h2>
+          <p>{STR.credit.loginBody}</p>
           <div className="row">
             <button
               type="button"
               className="btn primary"
               onClick={() => onAuthRequest('login')}
             >
-              Log in
+              {STR.app.login}
             </button>
             <button
               type="button"
               className="btn secondary"
               onClick={() => onAuthRequest('register')}
             >
-              Register
+              {STR.credit.register}
             </button>
           </div>
         </section>
       )}
 
-      {loading && <p className="message">Checking credit readiness…</p>}
+      {loading && (
+        <section className="card" aria-label={STR.credit.loading}>
+          <p className="skeleton skeleton-big" aria-hidden="true">…</p>
+          <p className="skeleton skeleton-text" aria-hidden="true">…</p>
+          <p className="skeleton skeleton-text" aria-hidden="true">…</p>
+        </section>
+      )}
 
       {!loading && error && (
         <div>
@@ -170,15 +177,17 @@ export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditPr
             {error}
           </p>
           <button type="button" className="btn secondary" onClick={() => void load()}>
-            Retry
+            {STR.common.retry}
           </button>
         </div>
       )}
 
       {!loading && !error && summary && summary.status === 'insufficient_data' && (
-        <section className="card" aria-label="Not enough history">
-          <h2>Not enough history yet</h2>
-          <p>{summary.explanation}</p>
+        <section className="card" aria-label={STR.credit.emptyTitle}>
+          <h2>{STR.credit.emptyTitle}</h2>
+          <div className="empty-state">
+            <p>{summary.explanation}</p>
+          </div>
           {summary.tips.length > 0 && <p className="hint">{summary.tips[0]}</p>}
         </section>
       )}
@@ -190,24 +199,24 @@ export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditPr
         summary.score !== null &&
         summary.band && (
           <>
-            <section className="card score-card" aria-label="Credit score">
+            <section className="card score-card" aria-label={STR.credit.scoreTitle}>
               <ScoreRing score={summary.score} band={summary.band} />
               <p className="hint">{summary.explanation}</p>
             </section>
 
-            <section className="card" aria-label="Score factors">
-              <h2>What makes the score</h2>
-              <FactorBars factors={summary.factors} />
-            </section>
-
-            <section className="card" aria-label="Safe loan estimate">
-              <h2>Safe loan estimate</h2>
+            <section className="card" aria-label={STR.credit.loanTitle}>
+              <h2>{STR.credit.loanTitle}</h2>
               <LoanCard loan={summary} />
             </section>
 
-            <section className="card" aria-label="In plain English">
-              <h2>In plain English</h2>
-              {explLoading && <p className="message">Asking Spark to explain…</p>}
+            <section className="card" aria-label={STR.credit.factorsTitle}>
+              <h2>{STR.credit.factorsTitle}</h2>
+              <FactorAccordion factors={summary.factors} />
+            </section>
+
+            <section className="card" aria-label={STR.credit.plainTitle}>
+              <h2>{STR.credit.plainTitle}</h2>
+              {explLoading && <p className="message">{STR.credit.aiLoading}</p>}
               {!explLoading && explError && (
                 <div>
                   <p className="message error" role="alert">
@@ -218,7 +227,7 @@ export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditPr
                     className="btn secondary"
                     onClick={() => void loadExplanation()}
                   >
-                    Retry
+                    {STR.common.retry}
                   </button>
                 </div>
               )}
@@ -227,15 +236,15 @@ export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditPr
                   <p>{explanation.text}</p>
                   <p className="hint">
                     {explanation.source === 'spark'
-                      ? 'Written by AI from the numbers above.'
-                      : 'Standard summary.'}
+                      ? STR.credit.aiNote
+                      : STR.credit.standardNote}
                   </p>
                 </div>
               )}
             </section>
 
-            <section className="card" aria-label="What would raise your score">
-              <h2>What would raise your score</h2>
+            <section className="card" aria-label={STR.credit.tipsTitle}>
+              <h2>{STR.credit.tipsTitle}</h2>
               <ul className="tips">
                 {summary.tips.map((tip) => (
                   <li key={tip}>{tip}</li>
@@ -243,12 +252,14 @@ export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditPr
               </ul>
             </section>
 
-            <section className="card" aria-label="Last 8 weeks">
-              <h2>Last 8 weeks</h2>
+            <section className="card" aria-label={STR.credit.weeksTitle}>
+              <h2>{STR.credit.weeksTitle}</h2>
               {weeks && weeks.length > 0 ? (
                 <WeeklyChart weeks={weeks} />
               ) : (
-                <p className="message">No weekly data yet.</p>
+                <div className="empty-state">
+                  <p>{STR.credit.noWeeks}</p>
+                </div>
               )}
             </section>
           </>

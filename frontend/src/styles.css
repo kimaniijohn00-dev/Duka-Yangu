@@ -1,15 +1,85 @@
-/* Duka-Yangu Day 3A: mobile-first, plain CSS. Base width 390px. */
+/* Duka-Yangu design tokens: one place for colour, spacing, radii,
+   type and shadows. Brand green is fixed; neutrals adapt to the
+   phone's light/dark preference below. */
 
 :root {
+  /* Brand (same in both modes; white text on --green-fill passes AA). */
   --green: #1b6b3a;
   --green-dark: #14522d;
+  --green-fill: #1b6b3a;
+
+  /* Neutrals: calm, high-contrast in both modes. */
   --ink: #1c2420;
   --muted: #5c665f;
   --line: #dce3dd;
   --bg: #eef2ee;
   --card: #ffffff;
+  --soft: #f4f8f4;
+  --track: #e3e9e3;
+
+  /* Text-on-colour pairs (each pair passes WCAG AA). */
+  --green-ink: #1b6b3a;
+  --warn-bg: #fdf3d7;
+  --warn-ink: #6e5510;
   --error-bg: #fdf0ef;
   --error-ink: #a02a20;
+  --sale-bg: #e2f1e5;
+  --sale-ink: #14522d;
+  --spend-bg: #fbe9e4;
+  --spend-ink: #8f3226;
+  --credit-bg: #fdf3d7;
+  --credit-ink: #6e5510;
+
+  /* Type scale (base 17px on mobile). */
+  --fs-body: 17px;
+  --fs-small: 14px;
+  --fs-tiny: 13px;
+  --fs-h1: 26px;
+  --fs-h2: 19px;
+  --fs-big: 22px;
+
+  /* Spacing + radii + shadows. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --radius-card: 12px;
+  --radius-input: 10px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 3px rgb(20 40 25 / 0.08);
+
+  /* Focus ring, always visible. */
+  --focus: #0f5fd0;
+
+  /* Skeleton shimmer base. */
+  --skeleton: #e3e9e3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e9eee9;
+    --muted: #a9b5a8;
+    --line: #2b352b;
+    --bg: #101510;
+    --card: #1a211a;
+    --soft: #222b22;
+    --track: #2b352b;
+    --green-ink: #8fd6a4;
+    --warn-bg: #3a2f10;
+    --warn-ink: #f2d98c;
+    --error-bg: #3d1a16;
+    --error-ink: #f2b8b0;
+    --sale-bg: #123825;
+    --sale-ink: #a9e3bd;
+    --spend-bg: #40201a;
+    --spend-ink: #f0b3a6;
+    --credit-bg: #3a2f10;
+    --credit-ink: #f2d98c;
+    --focus: #7fb3ff;
+    --skeleton: #2b352b;
+    --shadow-card: 0 1px 3px rgb(0 0 0 / 0.4);
+  }
 }
 
 * {
@@ -19,21 +89,38 @@
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 17px;
+  font-size: var(--fs-body);
   line-height: 1.45;
   color: var(--ink);
   background: var(--bg);
 }
 
+/* Visible focus on everything interactive. */
+:where(a, button, input, select, summary):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Respect reduced motion: no shimmer, no pulsing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 .app {
   max-width: 430px;
   margin: 0 auto;
-  padding: 16px 16px 40px;
+  padding: var(--sp-4) var(--sp-4) calc(112px + env(safe-area-inset-bottom, 0px));
 }
 
 .app-header h1 {
-  margin: 8px 0 0;
-  font-size: 26px;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-h1);
 }
 
 .tagline {
@@ -49,14 +136,15 @@ body {
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 16px;
+  border-radius: var(--radius-card);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  box-shadow: var(--shadow-card);
 }
 
 .card h2 {
-  margin: 0 0 8px;
-  font-size: 19px;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-h2);
 }
 
 .field-label {
@@ -68,12 +156,38 @@ body {
 .entry-box,
 .text-input {
   width: 100%;
-  font-size: 17px;
-  padding: 12px;
+  font-size: var(--fs-body);
+  padding: var(--sp-3);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-input);
   color: var(--ink);
-  background: #fff;
+  background: var(--card);
+}
+
+/* PIN / password field with a show/hide button inside. */
+.pin-wrap {
+  position: relative;
+}
+
+.pin-wrap .text-input {
+  padding-right: 76px;
+}
+
+.pin-toggle {
+  position: absolute;
+  right: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
+  min-height: 48px;
+  min-width: 60px;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-small);
+  font-weight: 700;
+  background: none;
+  border: none;
+  border-radius: var(--sp-2);
+  color: var(--green-ink);
+  cursor: pointer;
 }
 
 .entry-box {
@@ -111,7 +225,7 @@ body {
 }
 
 .btn.primary {
-  background: var(--green);
+  background: var(--green-fill);
   color: #fff;
   flex: 1;
 }
@@ -121,23 +235,73 @@ body {
 }
 
 .btn.secondary {
-  background: #fff;
-  border-color: var(--green);
-  color: var(--green);
+  background: var(--card);
+  border-color: var(--green-ink);
+  color: var(--green-ink);
   flex: 1;
 }
 
 .btn.mic {
-  background: #f0f3f0;
+  background: var(--soft);
   color: var(--muted);
   border-color: var(--line);
   flex: 1;
 }
 
 .btn.mic.recording {
-  background: #fbe4e1;
-  border-color: #d33;
-  color: #a02a20;
+  background: var(--error-bg);
+  border-color: var(--error-ink);
+  color: var(--error-ink);
+}
+
+/* Entries hero: the mic is the one clear action on the screen. */
+.mic-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 0 var(--sp-1);
+}
+
+.mic-btn {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 3px solid var(--green-ink);
+  background: var(--green-fill);
+  color: #fff;
+  font-size: 40px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-card);
+}
+
+.mic-btn.recording {
+  background: var(--error-ink);
+  border-color: var(--error-ink);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+.mic-btn svg {
+  width: 44px;
+  height: 44px;
+}
+
+.mic-caption {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+
+.mic-timer {
+  margin: 0;
+  font-size: var(--fs-big);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .voice-status {
@@ -172,7 +336,7 @@ body {
   background: none;
   border: none;
   color: var(--muted);
-  min-height: 44px;
+  min-height: 48px;
   margin-top: 4px;
   text-decoration: underline;
 }
@@ -190,7 +354,7 @@ body {
 
 .readback {
   font-size: 18px;
-  background: #f4f8f4;
+  background: var(--soft);
   border-radius: 8px;
   padding: 12px;
 }
@@ -265,30 +429,48 @@ body {
 }
 
 .badge {
-  font-size: 13px;
+  font-size: var(--fs-tiny);
   font-weight: 700;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 3px 10px;
-  background: #e8efe8;
-  color: #33463a;
+  background: var(--track);
+  color: var(--ink);
   white-space: nowrap;
 }
 
 .badge-sale {
-  background: #e2f1e5;
-  color: var(--green-dark);
+  background: var(--sale-bg);
+  color: var(--sale-ink);
 }
 
 .badge-expense,
 .badge-purchase {
-  background: #fbe9e4;
-  color: #8f3226;
+  background: var(--spend-bg);
+  color: var(--spend-ink);
 }
 
 .badge-credit_given,
 .badge-credit_received {
-  background: #fdf3d7;
-  color: #6e5510;
+  background: var(--credit-bg);
+  color: var(--credit-ink);
+}
+
+/* Ledger day groups. */
+.day-group {
+  margin: 0 0 var(--sp-3);
+}
+
+.day-group > h3 {
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-size: var(--fs-small);
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.day-group .ledger-list {
+  border-bottom: 1px solid var(--line);
 }
 
 .tabs {
@@ -296,14 +478,15 @@ body {
   bottom: 0;
   display: flex;
   gap: 8px;
-  padding: 10px 0 4px;
-  background: var(--bg);
+  padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--card);
+  border-top: 1px solid var(--line);
 }
 
 .tab {
   flex: 1;
   min-height: 52px;
-  font-size: 17px;
+  font-size: var(--fs-body);
   font-weight: 700;
   border-radius: 10px;
   border: 1px solid var(--line);
@@ -313,14 +496,14 @@ body {
 }
 
 .tab.active {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--green-fill);
+  border-color: var(--green-fill);
   color: #fff;
 }
 
 .demo-banner {
-  background: #fdf3d7;
-  color: #6e5510;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
   font-weight: 700;
   border-radius: 10px;
   padding: 10px 12px;
@@ -378,7 +561,7 @@ body {
 .bar {
   height: 12px;
   border-radius: 6px;
-  background: #e3e9e3;
+  background: var(--track);
   margin-top: 6px;
   overflow: hidden;
 }
@@ -485,7 +668,7 @@ body {
 }
 
 .consent {
-  background: #f4f8f4;
+  background: var(--soft);
   border-radius: 8px;
   padding: 12px;
   margin: 12px 0 0;
@@ -500,8 +683,8 @@ body {
   font-family: ui-monospace, monospace;
   font-size: 14px;
   word-break: break-all;
-  background: #f4f8f4;
-  border: 1px dashed var(--green);
+  background: var(--soft);
+  border: 1px dashed var(--green-ink);
   border-radius: 8px;
   padding: 12px;
   margin: 0;
@@ -549,18 +732,18 @@ a.btn.secondary {
 }
 
 .status-active {
-  background: #e2f1e5;
-  color: var(--green-dark);
+  background: var(--sale-bg);
+  color: var(--sale-ink);
 }
 
 .status-expired {
-  background: #fdf3d7;
-  color: #6e5510;
+  background: var(--credit-bg);
+  color: var(--credit-ink);
 }
 
 .status-revoked {
-  background: #fbe9e4;
-  color: #8f3226;
+  background: var(--spend-bg);
+  color: var(--spend-ink);
 }
 
 .passport-detail {
@@ -601,4 +784,96 @@ a.btn.secondary {
   color: var(--muted);
   font-size: 14px;
   margin: 16px 0 8px;
+}
+
+/* Offline / slow-connection banner. */
+.offline-banner {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-card);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+
+/* Loading skeletons: calm blocks instead of bare text. */
+.skeleton {
+  border-radius: var(--sp-2);
+  background: linear-gradient(90deg, var(--skeleton) 25%, var(--card) 50%, var(--skeleton) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  color: transparent;
+  user-select: none;
+}
+
+.skeleton-text {
+  height: 18px;
+  margin: var(--sp-2) 0;
+}
+
+.skeleton-big {
+  height: 72px;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Accordion for Credit factors: big native tap target. */
+.accordion {
+  border-top: 1px solid var(--line);
+  margin-top: var(--sp-2);
+}
+
+.accordion-item {
+  border-bottom: 1px solid var(--line);
+}
+
+.accordion-item > summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 0;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.accordion-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.accordion-item > summary::after {
+  content: "+";
+  font-size: var(--fs-big);
+  font-weight: 700;
+  color: var(--green-ink);
+  flex: none;
+}
+
+.accordion-item[open] > summary::after {
+  content: "–";
+}
+
+.accordion-body {
+  padding-bottom: var(--sp-3);
+}
+
+/* Friendly empty state: one clear next action. */
+.empty-state {
+  text-align: center;
+  padding: var(--sp-4) 0;
+}
+
+.empty-state p {
+  color: var(--muted);
+  margin: 0 0 var(--sp-3);
 }
