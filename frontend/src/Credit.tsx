@@ -55,7 +55,7 @@ function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }): JSX.Element {
                 width={barWidth}
                 height={salesH}
                 rx="3"
-                fill="#1b6b3a"
+                style={{ fill: 'var(--green-ink)' }}
               >
                 <title>{`Week of ${week.week_start}: sales ${formatKES(week.sales_kes)}`}</title>
               </rect>
@@ -65,7 +65,7 @@ function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }): JSX.Element {
                 width={barWidth}
                 height={costsH}
                 rx="3"
-                fill="#9aa39b"
+                style={{ fill: 'var(--muted)' }}
               >
                 <title>{`Week of ${week.week_start}: stock and costs ${formatKES(costs(week))}`}</title>
               </rect>

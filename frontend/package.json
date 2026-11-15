@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "check:contrast": "node scripts/check-theme-contrast.mjs",
+    "build": "tsc --noEmit && node scripts/check-theme-contrast.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

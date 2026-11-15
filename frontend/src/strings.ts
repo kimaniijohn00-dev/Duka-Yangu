@@ -17,8 +17,8 @@ export const STR = {
     logout: 'Log out',
     loggedInAs: 'Signed in',
     sessionExpired: 'Your session ended. Please log in again.',
-    themeLight: 'Light mode',
-    themeDark: 'Dark mode',
+    themeLight: 'Switch to light',
+    themeDark: 'Switch to dark',
   },
 
   common: {

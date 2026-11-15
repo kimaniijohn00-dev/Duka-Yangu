@@ -1,37 +1,9 @@
 /* Duka-Yangu design tokens: one place for colour, spacing, radii,
-   type and shadows. The light theme is the default; dark tokens apply
-   when the operating system prefers dark or the header toggle selects it. */
+   type and shadows. Colour tokens live ONLY in the html[data-theme]
+   blocks below, so <html data-theme="light|dark"> is the single source
+   of truth for every colour on the page (page background included). */
 
-:root,
-.app[data-theme='light'] {
-  /* Brand (white text on --green-fill passes AA). */
-  --green: #14522d;
-  --green-dark: #0d3a20;
-  --green-fill: #14522d;
-
-  /* Warm, high-contrast light neutrals for bright daylight. */
-  --ink: #20261d;
-  --muted: #57604e;
-  --line: #e4dabc;
-  --bg: #faf5e9;
-  --card: #ffffff;
-  --soft: #f3edda;
-  --track: #e7dcc0;
-  color-scheme: light;
-
-  /* Text-on-colour pairs (each pair passes WCAG AA). */
-  --green-ink: #1b6b3a;
-  --warn-bg: #fdf3d7;
-  --warn-ink: #6e5510;
-  --error-bg: #fdf0ef;
-  --error-ink: #a02a20;
-  --sale-bg: #e2f1e5;
-  --sale-ink: #14522d;
-  --spend-bg: #fbe9e4;
-  --spend-ink: #8f3226;
-  --credit-bg: #fdf3d7;
-  --credit-ink: #6e5510;
-
+:root {
   /* System type scale: 16-18px body, larger headings, tabular money. */
   --fs-body: 17px;
   --fs-small: 14px;
@@ -52,7 +24,6 @@
   --radius-card: 14px;
   --radius-input: 12px;
   --radius-pill: 999px;
-  --shadow-card: 0 2px 10px rgb(42 54 28 / 0.10);
 
   /* Layout: one place for page widths, the tab bar, and hero size. */
   --page-max: 430px;
@@ -61,50 +32,55 @@
   --mic-size: 96px;
   --brand-size: 22px;
   --z-nav: 30;
+}
 
-  /* Focus ring, always visible. */
+/* Light theme: the default. Every colour token for the page. */
+html[data-theme='light'] {
+  --green-dark: #0d3a20;
+  --green-fill: #14522d;
+  --green-ink: #1b6b3a;
+  --ink: #20261d;
+  --muted: #57604e;
+  --line: #6b7a5e;
+  --bg: #faf5e9;
+  --card: #ffffff;
+  --soft: #f3edda;
+  --track: #e7dcc0;
+  --warn-bg: #fdf3d7;
+  --warn-ink: #6e5510;
+  --error-bg: #fdf0ef;
+  --error-ink: #a02a20;
+  --sale-bg: #e2f1e5;
+  --sale-ink: #14522d;
+  --spend-bg: #fbe9e4;
+  --spend-ink: #8f3226;
+  --credit-bg: #fdf3d7;
+  --credit-ink: #6e5510;
   --focus: #0f5fd0;
-
-  /* Skeleton shimmer base. */
-  --skeleton: #e3e9e3;
+  --recording-ring: rgb(160 42 32 / 0.8);
+  --recording-ring-fade: rgb(160 42 32 / 0);
+  --band-building: #a02a20;
+  --band-developing: #6e5510;
+  --band-ready: #14522d;
+  --band-strong: #0d3a20;
+  --on-danger: #ffffff;
+  --on-primary: #ffffff;
+  --shadow-card: 0 2px 10px rgb(42 54 28 / 0.10);
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #e9eee9;
-    --muted: #a9b5a8;
-    --line: #2b352b;
-    --bg: #101510;
-    --card: #1a211a;
-    --soft: #222b22;
-    --track: #2b352b;
-    --green-ink: #8fd6a4;
-    --warn-bg: #3a2f10;
-    --warn-ink: #f2d98c;
-    --error-bg: #3d1a16;
-    --error-ink: #f2b8b0;
-    --sale-bg: #123825;
-    --sale-ink: #a9e3bd;
-    --spend-bg: #40201a;
-    --spend-ink: #f0b3a6;
-    --credit-bg: #3a2f10;
-    --credit-ink: #f2d98c;
-    --focus: #7fb3ff;
-    --skeleton: #2b352b;
-    --shadow-card: 0 2px 10px rgb(0 0 0 / 0.45);
-    color-scheme: dark;
-  }
-}
-
-.app[data-theme='dark'] {
+/* Dark theme: only when the header toggle selects it this session. */
+html[data-theme='dark'] {
+  --green-dark: #0d3a20;
+  --green-fill: #257a46;
+  --green-ink: #8fd6a4;
   --ink: #e9eee9;
   --muted: #a9b5a8;
-  --line: #2b352b;
+  --line: #7d907f;
   --bg: #101510;
   --card: #1a211a;
   --soft: #222b22;
   --track: #2b352b;
-  --green-ink: #8fd6a4;
   --warn-bg: #3a2f10;
   --warn-ink: #f2d98c;
   --error-bg: #3d1a16;
@@ -116,7 +92,14 @@
   --credit-bg: #3a2f10;
   --credit-ink: #f2d98c;
   --focus: #7fb3ff;
-  --skeleton: #2b352b;
+  --recording-ring: rgb(242 184 176 / 0.8);
+  --recording-ring-fade: rgb(242 184 176 / 0);
+  --band-building: #f2b8b0;
+  --band-developing: #f2d98c;
+  --band-ready: #8fd6a4;
+  --band-strong: #cfe8d4;
+  --on-danger: #3d1a16;
+  --on-primary: #ffffff;
   --shadow-card: 0 2px 10px rgb(0 0 0 / 0.45);
   color-scheme: dark;
 }
@@ -215,9 +198,8 @@ body {
   color: var(--green-ink);
 }
 
-.shop-name {
-  min-width: 0;
-  max-width: 34vw;
+.shop-line {
+  margin: 0 0 var(--sp-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -300,6 +282,12 @@ body {
   resize: vertical;
 }
 
+.entry-box::placeholder,
+.text-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
 .row {
   display: flex;
   gap: var(--sp-3);
@@ -335,7 +323,7 @@ body {
 
 .btn.primary {
   background: var(--green-fill);
-  color: #fff;
+  color: var(--on-primary);
   flex: 1;
 }
 
@@ -384,9 +372,9 @@ body {
   width: var(--mic-size);
   height: var(--mic-size);
   border-radius: 50%;
-  border: 3px solid var(--green-ink);
+  border: 3px solid var(--green-fill);
   background: var(--green-fill);
-  color: #fff;
+  color: var(--on-primary);
   font-size: 40px;
   line-height: 1;
   cursor: pointer;
@@ -399,18 +387,19 @@ body {
 .mic-btn.recording {
   background: var(--error-ink);
   border-color: var(--error-ink);
+  color: var(--on-danger);
   animation: mic-ring 1.6s ease-out infinite;
 }
 
 @keyframes mic-ring {
   0% {
-    box-shadow: 0 0 0 0 rgb(166 42 32 / 0.45), var(--shadow-card);
+    box-shadow: 0 0 0 0 var(--recording-ring), var(--shadow-card);
   }
   70% {
-    box-shadow: 0 0 0 20px rgb(166 42 32 / 0), var(--shadow-card);
+    box-shadow: 0 0 0 20px var(--recording-ring-fade), var(--shadow-card);
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(166 42 32 / 0), var(--shadow-card);
+    box-shadow: 0 0 0 0 var(--recording-ring-fade), var(--shadow-card);
   }
 }
 
@@ -471,7 +460,7 @@ body {
   height: 12px;
   flex: none;
   border-radius: 50%;
-  background: #c62f24;
+  background: var(--error-ink);
   animation: rec-pulse 1.2s ease-in-out infinite;
 }
 
@@ -490,7 +479,7 @@ body {
   border: none;
   color: var(--muted);
   min-height: 48px;
-  margin-top: 4px;
+  margin-top: var(--sp-1);
   text-decoration: underline;
 }
 
@@ -501,6 +490,7 @@ body {
 .message.error {
   background: var(--error-bg);
   color: var(--error-ink);
+  border: 1px solid currentcolor;
   border-radius: var(--sp-2);
   padding: var(--sp-3);
 }
@@ -508,6 +498,7 @@ body {
 .readback {
   font-size: var(--fs-body);
   background: var(--soft);
+  border: 1px solid var(--line);
   border-radius: var(--sp-2);
   padding: var(--sp-3);
 }
@@ -631,6 +622,7 @@ body {
 .badge {
   font-size: var(--fs-tiny);
   font-weight: 700;
+  border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   padding: var(--sp-1) var(--sp-2);
   background: var(--track);
@@ -714,7 +706,7 @@ body {
 
 .tab.active {
   background: var(--green-fill);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 /* Responsive frame: phones keep the tab bar fixed at the bottom, tablets
@@ -723,6 +715,15 @@ body {
 .credit-layout,
 .passport-layout {
   min-width: 0;
+}
+
+/* Available-width container: two-column layouts key off this, not the
+   viewport, so narrow embeds and side panels also get the single column. */
+.panels {
+  container-type: inline-size;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .entries-columns > *,
@@ -748,6 +749,27 @@ body {
 
   .topbar {
     min-height: 52px;
+  }
+}
+
+/* Very narrow screens: shrink the brand and control gaps so the shop
+   name row, theme toggle, and Log out all stay fully visible. */
+@media (max-width: 400px) {
+  .brand {
+    font-size: var(--fs-body);
+  }
+
+  .account {
+    gap: var(--sp-1);
+  }
+
+  .theme-toggle {
+    padding: var(--sp-2);
+    font-size: var(--fs-tiny);
+  }
+
+  .account .btn.linklike {
+    padding: var(--sp-3) var(--sp-1);
   }
 }
 
@@ -808,13 +830,23 @@ body {
   .tab.active {
     background: var(--sale-bg);
     color: var(--sale-ink);
+    box-shadow: inset 0 0 0 2px var(--sale-ink);
   }
 
+  .entries-totals {
+    padding: var(--sp-3);
+  }
+}
+
+/* Two columns only when the available width allows it (900px of
+   container width, not viewport width). One column below that. */
+@container (min-width: 900px) {
   .entries-columns {
     display: grid;
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
     gap: var(--sp-5);
     align-items: stretch;
+    align-content: start;
   }
 
   .entries-primary {
@@ -827,6 +859,7 @@ body {
     grid-column: 2;
     grid-row: 1;
     order: 0;
+    align-self: start;
     margin-bottom: 0;
     padding: var(--sp-3);
   }
@@ -854,14 +887,16 @@ body {
     display: grid;
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
     gap: var(--sp-5);
-    align-items: start;
+    align-items: stretch;
+    align-content: start;
   }
 
   .passport-layout {
     display: grid;
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
     column-gap: var(--sp-5);
-    align-items: start;
+    align-items: stretch;
+    align-content: start;
   }
 
   .passport-form {
@@ -875,6 +910,13 @@ body {
 
   .passport-link {
     grid-column: 1 / -1;
+  }
+}
+
+/* Stat tiles stack instead of wrapping their labels on narrow screens. */
+@container (max-width: 560px) {
+  .totals {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -940,6 +982,7 @@ body {
   background: var(--warn-bg);
   color: var(--warn-ink);
   font-weight: 700;
+  border: 1px solid currentcolor;
   border-radius: var(--radius-input);
   padding: var(--sp-3);
   margin: 0 0 var(--sp-4);
@@ -995,6 +1038,7 @@ body {
 
 .bar {
   height: 12px;
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--track);
   margin-top: 6px;
@@ -1004,7 +1048,7 @@ body {
 .bar .fill {
   height: 100%;
   border-radius: 6px;
-  background: var(--green);
+  background: var(--green-ink);
 }
 
 .factor-expl {
@@ -1056,11 +1100,11 @@ body {
 }
 
 .swatch.sales {
-  background: var(--green);
+  background: var(--green-ink);
 }
 
 .swatch.costs {
-  background: #9aa39b;
+  background: var(--muted);
 }
 
 .chart-label {
@@ -1100,12 +1144,13 @@ body {
 .check-row input {
   width: 22px;
   height: 22px;
-  accent-color: var(--green);
+  accent-color: var(--green-ink);
   flex: none;
 }
 
 .consent {
   background: var(--soft);
+  border: 1px solid var(--line);
   border-radius: var(--sp-2);
   padding: var(--sp-3);
   margin: var(--sp-3) 0 0;
@@ -1201,6 +1246,7 @@ a.btn.secondary {
 
 .confirm-box {
   background: var(--error-bg);
+  border: 1px solid currentcolor;
   border-radius: var(--sp-2);
   padding: var(--sp-3);
   margin-top: var(--sp-3);
@@ -1238,7 +1284,7 @@ a.btn.secondary {
 /* Loading skeletons: calm blocks instead of bare text. */
 .skeleton {
   border-radius: var(--sp-2);
-  background: linear-gradient(90deg, var(--skeleton) 25%, var(--card) 50%, var(--skeleton) 75%);
+  background: linear-gradient(90deg, var(--line) 25%, var(--card) 50%, var(--line) 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s ease-in-out infinite;
   color: transparent;

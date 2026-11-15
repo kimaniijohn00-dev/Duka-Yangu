@@ -9,10 +9,10 @@ import type {
 } from './types'
 
 const BAND_COLORS: Record<string, string> = {
-  Building: '#b23c17',
-  Developing: '#96690a',
-  Ready: '#1b6b3a',
-  Strong: '#0d4d26',
+  Building: 'var(--band-building)',
+  Developing: 'var(--band-developing)',
+  Ready: 'var(--band-ready)',
+  Strong: 'var(--band-strong)',
 }
 
 export function ScoreRing({
@@ -25,7 +25,7 @@ export function ScoreRing({
   const radius = 60
   const circumference = 2 * Math.PI * radius
   const done = (Math.min(100, Math.max(0, score)) / 100) * circumference
-  const color = BAND_COLORS[band] ?? '#1b6b3a'
+  const color = BAND_COLORS[band] ?? 'var(--band-ready)'
   return (
     <div className="score-wrap">
       <svg
@@ -36,6 +36,7 @@ export function ScoreRing({
         role="img"
         aria-label={`Credit score ${score} out of 100, band ${band}`}
       >
+        <circle cx="75" cy="75" r={radius} fill="none" style={{ stroke: 'var(--line)' }} strokeWidth="16" />
         <circle cx="75" cy="75" r={radius} fill="none" style={{ stroke: 'var(--track)' }} strokeWidth="14" />
         <circle
           cx="75"
@@ -43,7 +44,7 @@ export function ScoreRing({
           r={radius}
           fill="none"
           stroke={color}
-          strokeWidth="14"
+          strokeWidth="12"
           strokeLinecap="round"
           strokeDasharray={`${done} ${circumference}`}
           transform="rotate(-90 75 75)"
@@ -171,7 +172,7 @@ function SalesBars({ weeks }: { weeks: PassportWeeklySale[] }): JSX.Element {
               width={barWidth}
               height={barH}
               rx="3"
-              fill="#1b6b3a"
+              style={{ fill: 'var(--green-ink)' }}
             >
               <title>{`Week of ${week.week_start}: sales ${formatKES(week.sales_kes)}`}</title>
             </rect>

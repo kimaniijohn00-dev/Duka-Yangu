@@ -251,15 +251,9 @@ function TabIcon({ kind }: { kind: 'entries' | 'credit' | 'passport' }): JSX.Ele
 export default function App(): JSX.Element {
   const online = useOnline()
   const [tab, setTab] = useState<'entries' | 'credit' | 'passport'>('entries')
-  // Theme lives only in memory: the OS preference chooses the first value,
-  // and the header toggle flips it for this page load. Nothing is stored.
-  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light',
-  )
+  // Theme lives only in memory and always starts light: the header toggle
+  // is the only way to get the dark theme. Nothing is stored anywhere.
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const lenderToken = lenderTokenFromPath()
   // Session profile only (shop name for the header): the session token
   // itself lives in the HttpOnly cookie and never touches JS state.
@@ -283,9 +277,15 @@ export default function App(): JSX.Element {
       live = false
     }
   }, [])
+
+  // <html data-theme> is the single source of truth for every colour token.
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
+
   if (lenderToken) {
     return (
-      <main className="app app-lender" data-theme={theme}>
+      <main className="app app-lender">
         <LenderPassport token={lenderToken} />
       </main>
     )
@@ -588,7 +588,7 @@ export default function App(): JSX.Element {
 
   if (!authChecked) {
     return (
-      <main className="app" data-theme={theme}>
+      <main className="app">
         <header className="app-header">
           <div className="topbar">
             <h1 className="brand">{STR.app.name}</h1>
@@ -611,7 +611,7 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <main className="app" data-theme={theme}>
+    <main className="app">
       <header className="app-header">
         <div className="topbar">
           <h1 className="brand">{STR.app.name}</h1>
@@ -625,18 +625,13 @@ export default function App(): JSX.Element {
               {theme === 'dark' ? STR.app.themeLight : STR.app.themeDark}
             </button>
             {me ? (
-              <>
-                <span className="shop-name">
-                  {STR.app.loggedInAs}: {me.shop_name}
-                </span>
-                <button
-                  type="button"
-                  className="btn linklike"
-                  onClick={() => void handleLogout()}
-                >
-                  {STR.app.logout}
-                </button>
-              </>
+              <button
+                type="button"
+                className="btn linklike"
+                onClick={() => void handleLogout()}
+              >
+                {STR.app.logout}
+              </button>
             ) : (
               <button
                 type="button"
@@ -651,6 +646,11 @@ export default function App(): JSX.Element {
             )}
           </div>
         </div>
+        {me && (
+          <p className="shop-line">
+            {STR.app.loggedInAs}: {me.shop_name}
+          </p>
+        )}
         <p className="tagline">{STR.app.tagline}</p>
       </header>
 
@@ -693,6 +693,7 @@ export default function App(): JSX.Element {
         </button>
       </nav>
 
+      <div className="panels">
       {tab === 'entries' ? (
         me ? (
         <div className="entries-layout">
@@ -979,6 +980,7 @@ export default function App(): JSX.Element {
           onDone={handleLoggedIn}
         />
       )}
+      </div>
     </main>
   )
 }
