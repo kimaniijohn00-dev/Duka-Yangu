@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { confirmEntry, fetchLedger, postEntry, postTranscription } from './api'
+import {
+  confirmEntry,
+  fetchLedger,
+  fetchMe,
+  isUnauthorized,
+  logout,
+  postEntry,
+  postTranscription,
+  type Session,
+} from './api'
+import AuthScreen from './Auth'
 import Credit from './Credit'
 import { formatKES } from './format'
 import LenderPassport from './LenderPassport'
@@ -108,6 +118,27 @@ function MicIcon(): JSX.Element {
 export default function App(): JSX.Element {
   const [tab, setTab] = useState<'entries' | 'credit' | 'passport'>('entries')
   const lenderToken = lenderTokenFromPath()
+  // Session profile only (shop name for the header): the session token
+  // itself lives in the HttpOnly cookie and never touches JS state.
+  const [me, setMe] = useState<Session | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authNotice, setAuthNotice] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    fetchMe()
+      .then((session) => {
+        if (live) setMe(session)
+      })
+      .catch(() => {
+        if (live) setMe(null)
+      })
+      .finally(() => {
+        if (live) setAuthChecked(true)
+      })
+    return () => {
+      live = false
+    }
+  }, [])
   if (lenderToken) {
     return (
       <main className="app">
@@ -146,6 +177,49 @@ export default function App(): JSX.Element {
     }
   }, [])
 
+  /** Drop every in-memory shop detail and show the login screen. */
+  function clearShopData(notice: string | null): void {
+    recorderRef.current?.cancel()
+    recorderRef.current = null
+    stopVoiceTimer()
+    setText('')
+    setDraft(null)
+    setEditing(false)
+    clearEditErrors()
+    setConfirmError(null)
+    setConfirmLoading(false)
+    setEntryLoading(false)
+    setEntryError(null)
+    setVoice('idle')
+    setVoiceSecs(0)
+    setVoiceError(null)
+    setLedger([])
+    setLedgerError(null)
+    setLedgerLoading(false)
+    setMe(null)
+    setAuthNotice(notice)
+    setTab('credit')
+  }
+
+  function handleUnauthorized(): void {
+    clearShopData('Your session expired. Log in again.')
+  }
+
+  function handleLoggedIn(session: Session): void {
+    setMe(session)
+    setAuthNotice(null)
+    setTab('entries')
+  }
+
+  async function handleLogout(): Promise<void> {
+    try {
+      await logout()
+    } catch {
+      // Server revocation is best-effort; local state clears regardless.
+    }
+    clearShopData(null)
+  }
+
   async function stopVoice(): Promise<void> {
     const recorder = recorderRef.current
     recorderRef.current = null
@@ -161,6 +235,10 @@ export default function App(): JSX.Element {
       setText(await postTranscription(clip.blob))
       entryBoxRef.current?.focus()
     } catch (err) {
+      if (isUnauthorized(err)) {
+        handleUnauthorized()
+        return
+      }
       setVoiceError(err instanceof Error ? err.message : 'Voice input failed. Try again.')
     } finally {
       setVoice('idle')
@@ -222,6 +300,10 @@ export default function App(): JSX.Element {
     try {
       setLedger(await fetchLedger())
     } catch (err) {
+      if (isUnauthorized(err)) {
+        handleUnauthorized()
+        return
+      }
       setLedgerError(
         err instanceof Error ? err.message : 'Could not load the ledger.',
       )
@@ -231,8 +313,12 @@ export default function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    void loadLedger()
-  }, [loadLedger])
+    // Logged-in only: anonymous visitors have no ledger, and firing this
+    // while logged out would mistake "never logged in" for expiry.
+    if (me) {
+      void loadLedger()
+    }
+  }, [loadLedger, me])
 
   async function handleAdd(): Promise<void> {
     if (!text.trim()) {
@@ -248,6 +334,10 @@ export default function App(): JSX.Element {
       clearEditErrors()
       setConfirmError(null)
     } catch (err) {
+      if (isUnauthorized(err)) {
+        handleUnauthorized()
+        return
+      }
       setEntryError(err instanceof Error ? err.message : 'Please try again.')
     } finally {
       setEntryLoading(false)
@@ -325,6 +415,10 @@ export default function App(): JSX.Element {
       setText('')
       await loadLedger()
     } catch (err) {
+      if (isUnauthorized(err)) {
+        handleUnauthorized()
+        return
+      }
       setConfirmError(
         err instanceof Error ? err.message : 'Could not confirm. Try again.',
       )
@@ -348,14 +442,39 @@ export default function App(): JSX.Element {
     )
     .reduce((sum, e) => sum + Math.round(e.amount_kes), 0)
 
+  if (!authChecked) {
+    return (
+      <main className="app">
+        <header className="app-header">
+          <h1>Duka-Yangu</h1>
+          <p className="tagline">Type what happened. Confirm. Done.</p>
+        </header>
+        <p className="message">Checking your session…</p>
+      </main>
+    )
+  }
+
   return (
     <main className="app">
       <header className="app-header">
         <h1>Duka-Yangu</h1>
         <p className="tagline">Type what happened. Confirm. Done.</p>
+        {me ? (
+          <p className="shop-line">
+            {me.shop_name}{' '}
+            <button
+              type="button"
+              className="btn linklike"
+              onClick={() => void handleLogout()}
+            >
+              Log out
+            </button>
+          </p>
+        ) : null}
       </header>
 
       {tab === 'entries' ? (
+        me ? (
         <>
       <section className="card" aria-label="New entry">
         <label className="field-label" htmlFor="entry-text">
@@ -600,10 +719,20 @@ export default function App(): JSX.Element {
         )}
       </section>
         </>
+        ) : (
+          <AuthScreen notice={authNotice} onDone={handleLoggedIn} />
+        )
       ) : tab === 'credit' ? (
-        <Credit />
+        <Credit
+          key={me ? `shop-${me.shop_id}` : 'demo'}
+          demo={!me}
+          onLogin={() => setTab('entries')}
+          onUnauthorized={handleUnauthorized}
+        />
+      ) : me ? (
+        <Passport key={`shop-${me.shop_id}`} onUnauthorized={handleUnauthorized} />
       ) : (
-        <Passport />
+        <AuthScreen notice={authNotice} onDone={handleLoggedIn} />
       )}
 
       <nav className="tabs" aria-label="Sections">

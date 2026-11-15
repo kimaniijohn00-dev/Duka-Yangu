@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react'
-import { fetchCreditSummary, fetchExplanation, fetchWeekly } from './api'
+import { fetchCreditSummary, fetchExplanation, fetchWeekly, isUnauthorized } from './api'
 import { FactorBars, LoanCard, ScoreRing, weekLabel } from './creditShared'
 import { formatKES } from './format'
 import type { CreditSummary, Explanation, WeeklyBar } from './types'
+
+interface CreditProps {
+  /** True when shown to a visitor without a login (public demo data). */
+  demo: boolean
+  /** Jump to the login screen (shown on the demo banner). */
+  onLogin: () => void
+  /** Called when the session is rejected mid-use (expired cookie). */
+  onUnauthorized: () => void
+}
 
 const DISCLAIMER = 'Estimate only, not a lending decision.'
 
@@ -70,7 +79,7 @@ function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }): JSX.Element {
   )
 }
 
-export default function Credit(): JSX.Element {
+export default function Credit({ demo, onLogin, onUnauthorized }: CreditProps): JSX.Element {
   const [summary, setSummary] = useState<CreditSummary | null>(null)
   const [weeks, setWeeks] = useState<WeeklyBar[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -87,6 +96,10 @@ export default function Credit(): JSX.Element {
       setSummary(credit)
       setWeeks(series)
     } catch (err) {
+      if (isUnauthorized(err)) {
+        onUnauthorized()
+        return
+      }
       setError(err instanceof Error ? err.message : 'Could not load the dashboard.')
     } finally {
       setLoading(false)
@@ -99,6 +112,10 @@ export default function Credit(): JSX.Element {
     try {
       setExplanation(await fetchExplanation())
     } catch (err) {
+      if (isUnauthorized(err)) {
+        onUnauthorized()
+        return
+      }
       setExplError(
         err instanceof Error ? err.message : 'Could not load the explanation.',
       )
@@ -114,9 +131,14 @@ export default function Credit(): JSX.Element {
 
   return (
     <div>
-      <p className="demo-banner" role="note">
-        Demo shop with synthetic data
-      </p>
+      {demo && (
+        <p className="demo-banner" role="note">
+          Demo shop with synthetic data{' '}
+          <button type="button" className="btn linklike" onClick={onLogin}>
+            Log in
+          </button>
+        </p>
+      )}
 
       {loading && <p className="message">Checking credit readiness…</p>}
 

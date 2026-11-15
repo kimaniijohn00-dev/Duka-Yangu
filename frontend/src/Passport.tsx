@@ -3,6 +3,7 @@ import {
   createPassport,
   fetchPassportActivity,
   fetchPassports,
+  isUnauthorized,
   revokePassport,
 } from './api'
 import type {
@@ -67,7 +68,12 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export default function Passport(): JSX.Element {
+export default function Passport({
+  onUnauthorized,
+}: {
+  /** Called when the session is rejected mid-use (expired cookie). */
+  onUnauthorized: () => void
+}): JSX.Element {
   const [lender, setLender] = useState('')
   const [shareScore, setShareScore] = useState(true)
   const [shareLoan, setShareLoan] = useState(true)
@@ -112,13 +118,17 @@ export default function Passport(): JSX.Element {
     try {
       setPassports(await fetchPassports())
     } catch (err) {
+      if (isUnauthorized(err)) {
+        onUnauthorized()
+        return
+      }
       setListError(
         err instanceof Error ? err.message : 'Could not load passports.',
       )
     } finally {
       setListLoading(false)
     }
-  }, [])
+  }, [onUnauthorized])
 
   useEffect(() => {
     void loadList()
@@ -142,6 +152,10 @@ export default function Passport(): JSX.Element {
       setCopied(false)
       await loadList()
     } catch (err) {
+      if (isUnauthorized(err)) {
+        onUnauthorized()
+        return
+      }
       setCreateError(
         err instanceof Error ? err.message : 'Could not create the link.',
       )
@@ -166,6 +180,10 @@ export default function Passport(): JSX.Element {
       }
       await loadList()
     } catch (err) {
+      if (isUnauthorized(err)) {
+        onUnauthorized()
+        return
+      }
       setListError(
         err instanceof Error ? err.message : 'Could not stop sharing.',
       )
@@ -186,6 +204,10 @@ export default function Passport(): JSX.Element {
     try {
       setActivity(await fetchPassportActivity(id))
     } catch (err) {
+      if (isUnauthorized(err)) {
+        onUnauthorized()
+        return
+      }
       setActivityError(
         err instanceof Error ? err.message : 'Could not load views.',
       )

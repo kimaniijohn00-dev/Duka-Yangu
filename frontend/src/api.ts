@@ -42,6 +42,7 @@ export async function postEntry(text: string): Promise<Entry> {
   try {
     res = await fetch('/api/entry', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })
@@ -56,7 +57,7 @@ export async function postEntry(text: string): Promise<Entry> {
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as Entry
 }
@@ -71,6 +72,7 @@ export async function confirmEntry(
   try {
     res = await fetch('/api/transactions/confirm', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, ...edited }),
     })
@@ -80,7 +82,7 @@ export async function confirmEntry(
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as Entry
 }
@@ -91,7 +93,11 @@ export async function postTranscription(audio: Blob): Promise<string> {
   form.append('audio', audio, 'recording.wav')
   let res: Response
   try {
-    res = await fetch('/api/transcribe', { method: 'POST', body: form })
+    res = await fetch('/api/transcribe', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    })
   } catch {
     throw new Error(
       'Cannot reach the server. Start the backend first, then try again.',
@@ -108,7 +114,7 @@ export async function postTranscription(audio: Blob): Promise<string> {
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   const data: unknown = await res.json()
   const text =
@@ -124,19 +130,20 @@ export async function postTranscription(audio: Blob): Promise<string> {
 export async function fetchCreditSummary(): Promise<CreditSummary> {
   let res: Response
   try {
-    res = await fetch('/api/credit/summary')
+    res = await fetch('/api/credit/summary', { credentials: 'same-origin' })
   } catch {
     throw new Error(
       'Cannot reach the server. Start the backend, then tap Retry.',
     )
   }
   if (res.status === 404) {
-    throw new Error(
+    throw new ApiStatusError(
+      404,
       'No demo data yet. Seed the demo shop first, then open this tab.',
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as CreditSummary
 }
@@ -144,19 +151,20 @@ export async function fetchCreditSummary(): Promise<CreditSummary> {
 export async function fetchWeekly(): Promise<WeeklyBar[]> {
   let res: Response
   try {
-    res = await fetch('/api/dashboard/weekly')
+    res = await fetch('/api/dashboard/weekly', { credentials: 'same-origin' })
   } catch {
     throw new Error(
       'Cannot reach the server. Start the backend, then tap Retry.',
     )
   }
   if (res.status === 404) {
-    throw new Error(
+    throw new ApiStatusError(
+      404,
       'No demo data yet. Seed the demo shop first, then open this tab.',
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   const data = (await res.json()) as { weeks: WeeklyBar[] }
   return data.weeks
@@ -165,19 +173,20 @@ export async function fetchWeekly(): Promise<WeeklyBar[]> {
 export async function fetchExplanation(): Promise<Explanation> {
   let res: Response
   try {
-    res = await fetch('/api/credit/explain')
+    res = await fetch('/api/credit/explain', { credentials: 'same-origin' })
   } catch {
     throw new Error(
       'Cannot reach the server. Start the backend, then tap Retry.',
     )
   }
   if (res.status === 404) {
-    throw new Error(
+    throw new ApiStatusError(
+      404,
       'No demo data yet. Seed the demo shop first, then open this tab.',
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as Explanation
 }
@@ -185,14 +194,14 @@ export async function fetchExplanation(): Promise<Explanation> {
 export async function fetchLedger(): Promise<Entry[]> {
   let res: Response
   try {
-    res = await fetch('/api/ledger')
+    res = await fetch('/api/ledger', { credentials: 'same-origin' })
   } catch {
     throw new Error(
       'Cannot reach the server. Start the backend, then tap Retry.',
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as Entry[]
 }
@@ -224,6 +233,7 @@ export async function createPassport(input: {
   try {
     res = await fetch('/api/passports', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     })
@@ -233,7 +243,7 @@ export async function createPassport(input: {
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as CreatedPassport
 }
@@ -241,14 +251,14 @@ export async function createPassport(input: {
 export async function fetchPassports(): Promise<ShopPassport[]> {
   let res: Response
   try {
-    res = await fetch('/api/passports')
+    res = await fetch('/api/passports', { credentials: 'same-origin' })
   } catch {
     throw new Error(
       'Cannot reach the server. Start the backend, then tap Retry.',
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as ShopPassport[]
 }
@@ -256,14 +266,17 @@ export async function fetchPassports(): Promise<ShopPassport[]> {
 export async function revokePassport(id: number): Promise<void> {
   let res: Response
   try {
-    res = await fetch(`/api/passports/${id}/revoke`, { method: 'POST' })
+    res = await fetch(`/api/passports/${id}/revoke`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    })
   } catch {
     throw new Error(
       'Cannot reach the server. Start the backend, then try again.',
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
 }
 
@@ -272,14 +285,16 @@ export async function fetchPassportActivity(
 ): Promise<PassportActivity> {
   let res: Response
   try {
-    res = await fetch(`/api/passports/${id}/activity`)
+    res = await fetch(`/api/passports/${id}/activity`, {
+      credentials: 'same-origin',
+    })
   } catch {
     throw new Error(
       'Cannot reach the server. Start the backend, then tap Retry.',
     )
   }
   if (!res.ok) {
-    throw new Error(await detailMessage(res))
+    throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as PassportActivity
 }
@@ -297,4 +312,82 @@ export async function fetchPublicPassport(
     throw new ApiStatusError(res.status, await detailMessage(res))
   }
   return (await res.json()) as PassportSnapshot
+}
+
+// Authentication. The session lives in an HttpOnly cookie only: this
+// module never sees, stores, or sends any token — fetch just carries
+// the cookie automatically (credentials: 'same-origin'). Nothing here
+// touches localStorage, sessionStorage, or any other storage.
+export interface Session {
+  user_id: number
+  shop_id: number
+  shop_name: string
+}
+
+/** True when the backend rejected the session (expired, revoked, missing). */
+export function isUnauthorized(err: unknown): boolean {
+  return err instanceof ApiStatusError && err.status === 401
+}
+
+async function authPost(path: string, body: unknown): Promise<Response> {
+  try {
+    return await fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch {
+    throw new ApiStatusError(
+      0,
+      'Cannot reach the server. Start the backend, then try again.',
+    )
+  }
+}
+
+export async function fetchMe(): Promise<Session> {
+  let res: Response
+  try {
+    res = await fetch('/api/auth/me', { credentials: 'same-origin' })
+  } catch {
+    throw new ApiStatusError(
+      0,
+      'Cannot reach the server. Start the backend, then try again.',
+    )
+  }
+  if (!res.ok) {
+    throw new ApiStatusError(res.status, await detailMessage(res))
+  }
+  return (await res.json()) as Session
+}
+
+export async function login(input: {
+  phone: string
+  pin: string
+}): Promise<Session> {
+  const res = await authPost('/api/auth/login', input)
+  if (!res.ok) {
+    throw new ApiStatusError(res.status, await detailMessage(res))
+  }
+  return (await res.json()) as Session
+}
+
+export async function register(input: {
+  phone: string
+  pin: string
+  shop_name: string
+  invite_code: string
+}): Promise<Session> {
+  const res = await authPost('/api/auth/register', input)
+  if (!res.ok) {
+    throw new ApiStatusError(res.status, await detailMessage(res))
+  }
+  return (await res.json()) as Session
+}
+
+export async function logout(): Promise<void> {
+  const res = await authPost('/api/auth/logout', {})
+  if (!res.ok) {
+    throw new ApiStatusError(res.status, await detailMessage(res))
+  }
 }

@@ -41,6 +41,11 @@ body {
   color: var(--muted);
 }
 
+.shop-line {
+  margin: -8px 0 16px;
+  color: var(--muted);
+}
+
 .card {
   background: var(--card);
   border: 1px solid var(--line);
