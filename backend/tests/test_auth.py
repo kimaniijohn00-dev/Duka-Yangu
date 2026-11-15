@@ -132,12 +132,12 @@ def test_register_rejects_wrong_or_missing_invite(auth_env):
     assert exc_info.value.status_code == 403
 
 
-def test_register_disabled_without_env_var(auth_env, monkeypatch):
+def test_register_without_any_valid_code_fails_generic(auth_env, monkeypatch):
     monkeypatch.delenv("DUKA_INVITE_CODE")
     with pytest.raises(HTTPException) as exc_info:
         register()
     assert exc_info.value.status_code == 403
-    assert "disabled" in exc_info.value.detail.lower()
+    assert exc_info.value.detail == "Invalid invite code."
 
 
 def test_register_duplicate_phone_conflicts(auth_env):

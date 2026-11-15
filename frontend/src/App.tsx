@@ -9,7 +9,7 @@ import {
   postTranscription,
   type Session,
 } from './api'
-import AuthScreen from './Auth'
+import AuthScreen, { type AuthMode } from './Auth'
 import Credit from './Credit'
 import { formatKES } from './format'
 import LenderPassport from './LenderPassport'
@@ -123,6 +123,7 @@ export default function App(): JSX.Element {
   const [me, setMe] = useState<Session | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [authNotice, setAuthNotice] = useState<string | null>(null)
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
   useEffect(() => {
     let live = true
     fetchMe()
@@ -470,7 +471,20 @@ export default function App(): JSX.Element {
               Log out
             </button>
           </p>
-        ) : null}
+        ) : (
+          <p className="shop-line">
+            <button
+              type="button"
+              className="btn linklike"
+              onClick={() => {
+                setAuthMode('login')
+                setTab('entries')
+              }}
+            >
+              Log in
+            </button>
+          </p>
+        )}
       </header>
 
       {tab === 'entries' ? (
@@ -720,19 +734,32 @@ export default function App(): JSX.Element {
       </section>
         </>
         ) : (
-          <AuthScreen notice={authNotice} onDone={handleLoggedIn} />
+          <AuthScreen
+            notice={authNotice}
+            mode={authMode}
+            onModeChange={setAuthMode}
+            onDone={handleLoggedIn}
+          />
         )
       ) : tab === 'credit' ? (
         <Credit
           key={me ? `shop-${me.shop_id}` : 'demo'}
           demo={!me}
-          onLogin={() => setTab('entries')}
+          onAuthRequest={(next) => {
+            setAuthMode(next)
+            setTab('entries')
+          }}
           onUnauthorized={handleUnauthorized}
         />
       ) : me ? (
         <Passport key={`shop-${me.shop_id}`} onUnauthorized={handleUnauthorized} />
       ) : (
-        <AuthScreen notice={authNotice} onDone={handleLoggedIn} />
+        <AuthScreen
+          notice={authNotice}
+          mode={authMode}
+          onModeChange={setAuthMode}
+          onDone={handleLoggedIn}
+        />
       )}
 
       <nav className="tabs" aria-label="Sections">

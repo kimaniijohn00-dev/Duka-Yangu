@@ -126,6 +126,18 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     success INTEGER NOT NULL DEFAULT 0
 );
 
+-- Single-use invite codes. Only the SHA-256 hash is stored; the raw
+-- code is shown once at creation and never written anywhere.
+CREATE TABLE IF NOT EXISTS invite_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code_hash TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    used_by_shop_id INTEGER REFERENCES shops(id),
+    revoked_at TEXT
+);
 """
 
 # Indexes run after the column ensures below: some indexed columns
@@ -137,6 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_passports_shop ON passports(shop_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_shop ON audit_log(shop_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_shop ON sessions(shop_id);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_phone_at ON login_attempts(phone, attempted_at);
+CREATE INDEX IF NOT EXISTS idx_invite_codes_hash ON invite_codes(code_hash);
 """
 
 # usage_counters.shop_id uses 0 for the shared global aggregate row: real

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { ApiStatusError, login, register, type Session } from './api'
+import { SUPPORT_CONTACT } from './config'
 
 // Shown for every failed login (401) so the screen never reveals whether
 // a phone number is registered.
@@ -13,14 +14,17 @@ function digitsOnly(value: string): string {
   return value.replace(/\D/g, '')
 }
 
+export type AuthMode = 'login' | 'register'
+
 interface Props {
   /** One-off notice, e.g. after a session expires. Shown once at the top. */
   notice: string | null
+  mode: AuthMode
+  onModeChange: (mode: AuthMode) => void
   onDone: (session: Session) => void
 }
 
-export default function AuthScreen({ notice, onDone }: Props): JSX.Element {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+export default function AuthScreen({ notice, mode, onModeChange, onDone }: Props): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [failCount, setFailCount] = useState(0)
@@ -33,7 +37,7 @@ export default function AuthScreen({ notice, onDone }: Props): JSX.Element {
   const inviteRef = useRef<HTMLInputElement>(null)
 
   function switchMode(next: 'login' | 'register'): void {
-    setMode(next)
+    onModeChange(next)
     setError(null)
     setFailCount(0)
   }
@@ -239,6 +243,11 @@ export default function AuthScreen({ notice, onDone }: Props): JSX.Element {
               placeholder="From whoever invited you"
               disabled={busy}
             />
+            <p className="hint">
+              No invite code? Ask the Duka-Yangu team for one.
+              <br />
+              {SUPPORT_CONTACT}
+            </p>
           </>
         )}
         {error && (

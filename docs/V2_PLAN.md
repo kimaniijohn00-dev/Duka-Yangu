@@ -1,10 +1,12 @@
 # Duka-Yangu v2 plan — real accounts and per-shop data isolation
 
-Status: build steps 1–4 (scoping) plus demo-flag seeding (step 7) and
-the v2 migration script (step 8) implemented. Anonymous demo reads are
-served by shops.is_demo; NULL-shop data migrates via scripts/migrate_v2.py.
-Shop scoping and login behavior unchanged in this step. Nothing deployed
-to Modal, nothing committed.
+Status: build steps 1–4 (scoping) plus demo-flag seeding (step 7),
+the v2 migration script (step 8), and single-use invite codes
+implemented. Anonymous demo reads are served by shops.is_demo; NULL-shop
+data migrates via scripts/migrate_v2.py; registration consumes one row
+of invite_codes (scripts/make_invite.py, scripts/list_invites.py) with
+DUKA_INVITE_CODE kept as an optional fallback. Nothing deployed to
+Modal, nothing committed.
 
 Working assumption: this plan targets the `v2` branch. Git could not be
 consulted from this environment (ownership block), so confirm with

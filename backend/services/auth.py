@@ -30,6 +30,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from db import get_connection
 from services.credit import DEMO_SHOP_NAME
+from services.invites import InvalidInvite, consume_invite
 
 SESSION_COOKIE = "duka_session"
 SESSION_DAYS = 30
@@ -394,6 +395,16 @@ def require_user(request: Request, now: datetime | None = None) -> dict:
     }
 
 
+def _check_env_invite(provided: str | None) -> bool:
+    """Optional DUKA_INVITE_CODE fallback. False when unset or mismatched."""
+    expected = os.getenv("DUKA_INVITE_CODE") or ""
+    if not expected or not isinstance(provided, str):
+        return False
+    return hmac.compare_digest(
+        provided.encode("utf-8"), expected.encode("utf-8")
+    )
+
+
 def register(phone: str, pin: str, shop_name: str, invite_code: str,
              request: Request, response: Response,
              now: datetime | None = None) -> dict:
@@ -402,11 +413,6 @@ def register(phone: str, pin: str, shop_name: str, invite_code: str,
     ip = client_ip(request)
     _check_origin(request)
     _check_ip_limit("auth_register", ip, now, REGISTER_IP_MAX_PER_HOUR, 3600)
-    expected = os.getenv("DUKA_INVITE_CODE") or ""
-    if not expected:
-        raise HTTPException(status_code=403, detail="Registration is currently disabled.")
-    if not hmac.compare_digest(invite_code.encode("utf-8"), expected.encode("utf-8")):
-        raise HTTPException(status_code=403, detail="Invalid invite code.")
     canonical = normalize_phone(phone)
     if canonical is None:
         raise HTTPException(
@@ -442,6 +448,16 @@ def register(phone: str, pin: str, shop_name: str, invite_code: str,
             (shop_id, canonical, hash_pin(pin), now.isoformat()),
         )
         user_id = cur.lastrowid
+        if not _check_env_invite(invite_code):
+            # Single-use code, consumed in this same transaction: any
+            # later failure rolls the mark back, so a failed
+            # registration never burns a code.
+            try:
+                invite_row_id = consume_invite(conn, invite_code, now, shop_id)
+            except InvalidInvite as exc:
+                raise HTTPException(status_code=403, detail=str(exc))
+            _audit(conn, "invite_used", invite_row_id, shop_id,
+                   f"invite {invite_row_id} used", now)
         _audit(conn, "registered", user_id, shop_id,
                f"phone {mask_phone(canonical)}", now)
         cookie_value = _create_session(conn, user_id, shop_id, now)

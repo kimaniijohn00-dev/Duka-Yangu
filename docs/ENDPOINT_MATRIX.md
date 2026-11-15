@@ -12,7 +12,7 @@ client-supplied shop id in any form. Enforced by
 
 | Method | Path | Auth rule | Shop resolution | Origin check |
 | --- | --- | --- | --- | --- |
-| POST | `/api/auth/register` | public (invite code) | creates a new shop (`is_demo = 0`; demo name rejected with 422) | yes |
+| POST | `/api/auth/register` | public (single-use invite code, `DUKA_INVITE_CODE` fallback) | creates a new shop (`is_demo = 0`; demo name rejected with 422; code marked used in the same transaction) | yes |
 | POST | `/api/auth/login` | public (rate limited) | session created for the user's shop | yes |
 | POST | `/api/auth/logout` | login required | revokes the session's shop session | yes |
 | GET | `/api/auth/me` | login required | session shop | no (safe method) |

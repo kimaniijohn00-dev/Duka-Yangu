@@ -7,8 +7,8 @@ import type { CreditSummary, Explanation, WeeklyBar } from './types'
 interface CreditProps {
   /** True when shown to a visitor without a login (public demo data). */
   demo: boolean
-  /** Jump to the login screen (shown on the demo banner). */
-  onLogin: () => void
+  /** Jump to the login or register screen from the demo prompts. */
+  onAuthRequest: (mode: 'login' | 'register') => void
   /** Called when the session is rejected mid-use (expired cookie). */
   onUnauthorized: () => void
 }
@@ -79,7 +79,7 @@ function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }): JSX.Element {
   )
 }
 
-export default function Credit({ demo, onLogin, onUnauthorized }: CreditProps): JSX.Element {
+export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditProps): JSX.Element {
   const [summary, setSummary] = useState<CreditSummary | null>(null)
   const [weeks, setWeeks] = useState<WeeklyBar[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -134,10 +134,32 @@ export default function Credit({ demo, onLogin, onUnauthorized }: CreditProps): 
       {demo && (
         <p className="demo-banner" role="note">
           Demo shop with synthetic data{' '}
-          <button type="button" className="btn linklike" onClick={onLogin}>
+          <button type="button" className="btn linklike" onClick={() => onAuthRequest('login')}>
             Log in
           </button>
         </p>
+      )}
+      {demo && (
+        <section className="card" aria-label="View your own shop">
+          <h2>Your shop could be here</h2>
+          <p>You are viewing a demo shop. Log in or register to see your own shop&rsquo;s score.</p>
+          <div className="row">
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => onAuthRequest('login')}
+            >
+              Log in
+            </button>
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => onAuthRequest('register')}
+            >
+              Register
+            </button>
+          </div>
+        </section>
       )}
 
       {loading && <p className="message">Checking credit readiness…</p>}
