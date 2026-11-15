@@ -217,7 +217,7 @@ export default function App(): JSX.Element {
   }, [])
   if (lenderToken) {
     return (
-      <main className="app">
+      <main className="app app-lender">
         <LenderPassport token={lenderToken} />
       </main>
     )
@@ -533,33 +533,37 @@ export default function App(): JSX.Element {
   return (
     <main className="app">
       <header className="app-header">
-        <h1>{STR.app.name}</h1>
+        <div className="topbar">
+          <h1 className="brand">{STR.app.name}</h1>
+          <div className="account">
+            {me ? (
+              <>
+                <span className="shop-name">
+                  {STR.app.loggedInAs}: {me.shop_name}
+                </span>
+                <button
+                  type="button"
+                  className="btn linklike"
+                  onClick={() => void handleLogout()}
+                >
+                  {STR.app.logout}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn linklike"
+                onClick={() => {
+                  setAuthMode('login')
+                  setTab('entries')
+                }}
+              >
+                {STR.app.login}
+              </button>
+            )}
+          </div>
+        </div>
         <p className="tagline">{STR.app.tagline}</p>
-        {me ? (
-          <p className="shop-line">
-            {STR.app.loggedInAs}: {me.shop_name}{' '}
-            <button
-              type="button"
-              className="btn linklike"
-              onClick={() => void handleLogout()}
-            >
-              {STR.app.logout}
-            </button>
-          </p>
-        ) : (
-          <p className="shop-line">
-            <button
-              type="button"
-              className="btn linklike"
-              onClick={() => {
-                setAuthMode('login')
-                setTab('entries')
-              }}
-            >
-              {STR.app.login}
-            </button>
-          </p>
-        )}
       </header>
 
       {!online && (
@@ -568,10 +572,40 @@ export default function App(): JSX.Element {
         </p>
       )}
 
+      <nav className="tabs" aria-label="Sections" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          className={tab === 'entries' ? 'tab active' : 'tab'}
+          aria-selected={tab === 'entries'}
+          onClick={() => setTab('entries')}
+        >
+          {STR.app.tabs.entries}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={tab === 'credit' ? 'tab active' : 'tab'}
+          aria-selected={tab === 'credit'}
+          onClick={() => setTab('credit')}
+        >
+          {STR.app.tabs.credit}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={tab === 'passport' ? 'tab active' : 'tab'}
+          aria-selected={tab === 'passport'}
+          onClick={() => setTab('passport')}
+        >
+          {STR.app.tabs.passport}
+        </button>
+      </nav>
+
       {tab === 'entries' ? (
         me ? (
-        <>
-      <section className="card" aria-label={STR.entries.todayTotals}>
+        <div className="entries-layout">
+      <section className="card entries-totals" aria-label={STR.entries.todayTotals}>
         <div className="totals">
           <div className="total">
             <span className="total-label">{STR.entries.todaySales}</span>
@@ -584,6 +618,8 @@ export default function App(): JSX.Element {
         </div>
       </section>
 
+      <div className="entries-columns">
+        <div className="entries-primary">
       <section className="card" aria-label="New entry">
         <div className="mic-hero">
           <button
@@ -777,7 +813,8 @@ export default function App(): JSX.Element {
           <p className="hint">{STR.entries.confirmHint}</p>
         </section>
       )}
-
+        </div>
+        <div className="entries-ledger">
       <section className="card" aria-label={STR.entries.ledgerTitle}>
         <h2>{STR.entries.ledgerTitle}</h2>
 
@@ -807,7 +844,9 @@ export default function App(): JSX.Element {
           <LedgerGroups ledger={ledger} />
         )}
       </section>
-        </>
+        </div>
+      </div>
+        </div>
         ) : (
           <AuthScreen
             notice={authNotice}
@@ -836,36 +875,6 @@ export default function App(): JSX.Element {
           onDone={handleLoggedIn}
         />
       )}
-
-      <nav className="tabs" aria-label="Sections" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          className={tab === 'entries' ? 'tab active' : 'tab'}
-          aria-selected={tab === 'entries'}
-          onClick={() => setTab('entries')}
-        >
-          {STR.app.tabs.entries}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={tab === 'credit' ? 'tab active' : 'tab'}
-          aria-selected={tab === 'credit'}
-          onClick={() => setTab('credit')}
-        >
-          {STR.app.tabs.credit}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={tab === 'passport' ? 'tab active' : 'tab'}
-          aria-selected={tab === 'passport'}
-          onClick={() => setTab('passport')}
-        >
-          {STR.app.tabs.passport}
-        </button>
-      </nav>
     </main>
   )
 }

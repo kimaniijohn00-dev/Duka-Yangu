@@ -49,6 +49,14 @@
   --radius-pill: 999px;
   --shadow-card: 0 1px 3px rgb(20 40 25 / 0.08);
 
+  /* Layout: one place for page widths, the tab bar, and hero size. */
+  --page-max: 430px;
+  --page-pad: 16px;
+  --tabbar-h: 76px;
+  --mic-size: 72px;
+  --brand-size: 20px;
+  --z-nav: 30;
+
   /* Focus ring, always visible. */
   --focus: #0f5fd0;
 
@@ -88,6 +96,8 @@
 
 body {
   margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: var(--fs-body);
   line-height: 1.45;
@@ -113,23 +123,67 @@ body {
 }
 
 .app {
-  max-width: 430px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: var(--page-max);
   margin: 0 auto;
-  padding: var(--sp-4) var(--sp-4) calc(112px + env(safe-area-inset-bottom, 0px));
+  padding: var(--sp-3) var(--page-pad) calc(var(--tabbar-h) + var(--sp-4) + env(safe-area-inset-bottom, 0px));
 }
 
-.app-header h1 {
-  margin: var(--sp-2) 0 0;
-  font-size: var(--fs-h1);
+.app-header {
+  padding-top: var(--sp-1);
+}
+
+.app.app-lender {
+  padding-bottom: var(--sp-5);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-height: 56px;
+}
+
+.brand {
+  margin: 0;
+  font-size: var(--brand-size);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  min-width: 0;
+  margin-left: auto;
+}
+
+.shop-name {
+  min-width: 0;
+  max-width: 34vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+
+.account .btn.linklike {
+  flex: none;
+  margin-top: 0;
+  padding: var(--sp-3) var(--sp-2);
+  white-space: nowrap;
 }
 
 .tagline {
-  margin: 2px 0 16px;
-  color: var(--muted);
-}
-
-.shop-line {
-  margin: -8px 0 16px;
+  margin: var(--sp-1) 0 var(--sp-3);
   color: var(--muted);
 }
 
@@ -137,8 +191,8 @@ body {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
-  padding: var(--sp-4);
-  margin-bottom: var(--sp-4);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
   box-shadow: var(--shadow-card);
 }
 
@@ -191,7 +245,7 @@ body {
 }
 
 .entry-box {
-  min-height: 88px;
+  min-height: 72px;
   resize: vertical;
 }
 
@@ -264,8 +318,8 @@ body {
 }
 
 .mic-btn {
-  width: 96px;
-  height: 96px;
+  width: var(--mic-size);
+  height: var(--mic-size);
   border-radius: 50%;
   border: 3px solid var(--green-ink);
   background: var(--green-fill);
@@ -377,8 +431,8 @@ body {
 
 .totals {
   display: flex;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
 }
 
 .total {
@@ -403,7 +457,7 @@ body {
 
 .ledger-row {
   border-top: 1px solid var(--line);
-  padding: 12px 0;
+  padding: var(--sp-2) 0;
 }
 
 .ledger-main {
@@ -474,11 +528,16 @@ body {
 }
 
 .tabs {
-  position: sticky;
+  position: fixed;
+  right: 0;
   bottom: 0;
+  left: 0;
+  z-index: var(--z-nav);
   display: flex;
+  width: min(100%, var(--page-max));
+  margin: 0 auto;
   gap: 8px;
-  padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px));
+  padding: 10px var(--page-pad) calc(10px + env(safe-area-inset-bottom, 0px));
   background: var(--card);
   border-top: 1px solid var(--line);
 }
@@ -499,6 +558,162 @@ body {
   background: var(--green-fill);
   border-color: var(--green-fill);
   color: #fff;
+}
+
+/* Responsive frame: phones keep the tab bar fixed at the bottom, tablets
+   widen the column, and laptops move the tabs to the top with side grids. */
+.entries-layout,
+.credit-layout,
+.passport-layout {
+  min-width: 0;
+}
+
+.entries-columns > *,
+.credit-grid > *,
+.passport-layout > * {
+  min-width: 0;
+}
+
+.entries-columns,
+.credit-grid {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 767px) {
+  .tagline {
+    display: none;
+  }
+
+  .topbar {
+    min-height: 52px;
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --page-max: 720px;
+    --mic-size: 84px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --page-max: 1100px;
+    --mic-size: 96px;
+    --brand-size: 24px;
+  }
+
+  .app {
+    padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  }
+
+  .card {
+    padding: var(--sp-4);
+    margin-bottom: var(--sp-4);
+  }
+
+  .entry-box {
+    min-height: 88px;
+  }
+
+  .tabs {
+    position: static;
+    width: auto;
+    margin: 0 0 var(--sp-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .entries-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: var(--sp-5);
+    align-items: start;
+  }
+
+  .credit-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: var(--sp-5);
+    align-items: start;
+  }
+
+  .passport-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    column-gap: var(--sp-5);
+    align-items: start;
+  }
+
+  .passport-form {
+    grid-column: 1;
+  }
+
+  .passport-list {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .passport-link {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Short windows: compress vertical rhythm so entry, mic, and tabs fit. */
+@media (max-height: 800px) {
+  :root {
+    --mic-size: 64px;
+  }
+
+  .app {
+    padding-top: var(--sp-2);
+  }
+
+  .topbar {
+    min-height: 48px;
+  }
+
+  .brand {
+    font-size: var(--fs-h2);
+  }
+
+  .tagline,
+  .mic-caption {
+    display: none;
+  }
+
+  .card {
+    padding: var(--sp-3);
+    margin-bottom: var(--sp-3);
+  }
+
+  .mic-hero {
+    gap: var(--sp-1);
+    padding: var(--sp-1) 0 0;
+  }
+
+  .entry-box {
+    min-height: 60px;
+  }
+
+  .totals {
+    margin-bottom: var(--sp-1);
+  }
+
+  .ledger-row {
+    padding: var(--sp-1) 0;
+  }
+
+  .check-row,
+  .passport-row {
+    padding: var(--sp-2) 0;
+  }
+
+  .tips li {
+    margin-bottom: var(--sp-1);
+  }
 }
 
 .demo-banner {
@@ -654,6 +869,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 48px;
   font-size: 17px;
   padding: 10px 0;
   border-top: 1px solid var(--line);
@@ -708,6 +924,7 @@ a.btn.secondary {
 .passport-main {
   display: block;
   width: 100%;
+  min-height: 48px;
   text-align: left;
   background: none;
   border: none;

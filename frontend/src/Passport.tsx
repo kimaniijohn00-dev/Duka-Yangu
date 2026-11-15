@@ -215,8 +215,8 @@ export default function Passport({
   })
 
   return (
-    <div>
-      <section className="card" aria-label={STR.passport.shareTitle}>
+    <div className="passport-layout">
+      <section className="card passport-form" aria-label={STR.passport.shareTitle}>
         <h2>{STR.passport.shareTitle}</h2>
         <label className="field-label" htmlFor="lender-name">
           {STR.passport.lenderName}
@@ -300,7 +300,7 @@ export default function Passport({
       </section>
 
       {freshLink && (
-        <section className="card link-card" aria-label={STR.passport.linkReadyTitle} aria-live="polite">
+        <section className="card link-card passport-link" aria-label={STR.passport.linkReadyTitle} aria-live="polite">
           <h2>{STR.passport.linkReadyTitle} {freshLink.lender}</h2>
           <p className="link-once">
             {STR.passport.linkOnce}
@@ -335,7 +335,7 @@ export default function Passport({
         </section>
       )}
 
-      <section className="card" aria-label={STR.passport.sharedTitle}>
+      <section className="card passport-list" aria-label={STR.passport.sharedTitle}>
         <h2>{STR.passport.sharedTitle}</h2>
         {listLoading && (
           <div aria-label={STR.passport.linksLoading}>

@@ -131,7 +131,7 @@ export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditPr
   }, [])
 
   return (
-    <div>
+    <div className="credit-layout">
       {demo && (
         <p className="demo-banner" role="note">
           {STR.app.demoBanner}{' '}
@@ -198,71 +198,75 @@ export default function Credit({ demo, onAuthRequest, onUnauthorized }: CreditPr
         summary.status === 'scored' &&
         summary.score !== null &&
         summary.band && (
-          <>
-            <section className="card score-card" aria-label={STR.credit.scoreTitle}>
-              <ScoreRing score={summary.score} band={summary.band} />
-              <p className="hint">{summary.explanation}</p>
-            </section>
+          <div className="credit-grid">
+            <div className="credit-primary">
+              <section className="card score-card" aria-label={STR.credit.scoreTitle}>
+                <ScoreRing score={summary.score} band={summary.band} />
+                <p className="hint">{summary.explanation}</p>
+              </section>
 
-            <section className="card" aria-label={STR.credit.loanTitle}>
-              <h2>{STR.credit.loanTitle}</h2>
-              <LoanCard loan={summary} />
-            </section>
+              <section className="card" aria-label={STR.credit.loanTitle}>
+                <h2>{STR.credit.loanTitle}</h2>
+                <LoanCard loan={summary} />
+              </section>
+            </div>
 
-            <section className="card" aria-label={STR.credit.factorsTitle}>
-              <h2>{STR.credit.factorsTitle}</h2>
-              <FactorAccordion factors={summary.factors} />
-            </section>
+            <div className="credit-secondary">
+              <section className="card" aria-label={STR.credit.factorsTitle}>
+                <h2>{STR.credit.factorsTitle}</h2>
+                <FactorAccordion factors={summary.factors} />
+              </section>
 
-            <section className="card" aria-label={STR.credit.plainTitle}>
-              <h2>{STR.credit.plainTitle}</h2>
-              {explLoading && <p className="message">{STR.credit.aiLoading}</p>}
-              {!explLoading && explError && (
-                <div>
-                  <p className="message error" role="alert">
-                    {explError}
-                  </p>
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={() => void loadExplanation()}
-                  >
-                    {STR.common.retry}
-                  </button>
-                </div>
-              )}
-              {!explLoading && !explError && explanation && (
-                <div>
-                  <p>{explanation.text}</p>
-                  <p className="hint">
-                    {explanation.source === 'spark'
-                      ? STR.credit.aiNote
-                      : STR.credit.standardNote}
-                  </p>
-                </div>
-              )}
-            </section>
+              <section className="card" aria-label={STR.credit.plainTitle}>
+                <h2>{STR.credit.plainTitle}</h2>
+                {explLoading && <p className="message">{STR.credit.aiLoading}</p>}
+                {!explLoading && explError && (
+                  <div>
+                    <p className="message error" role="alert">
+                      {explError}
+                    </p>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      onClick={() => void loadExplanation()}
+                    >
+                      {STR.common.retry}
+                    </button>
+                  </div>
+                )}
+                {!explLoading && !explError && explanation && (
+                  <div>
+                    <p>{explanation.text}</p>
+                    <p className="hint">
+                      {explanation.source === 'spark'
+                        ? STR.credit.aiNote
+                        : STR.credit.standardNote}
+                    </p>
+                  </div>
+                )}
+              </section>
 
-            <section className="card" aria-label={STR.credit.tipsTitle}>
-              <h2>{STR.credit.tipsTitle}</h2>
-              <ul className="tips">
-                {summary.tips.map((tip) => (
-                  <li key={tip}>{tip}</li>
-                ))}
-              </ul>
-            </section>
+              <section className="card" aria-label={STR.credit.tipsTitle}>
+                <h2>{STR.credit.tipsTitle}</h2>
+                <ul className="tips">
+                  {summary.tips.map((tip) => (
+                    <li key={tip}>{tip}</li>
+                  ))}
+                </ul>
+              </section>
 
-            <section className="card" aria-label={STR.credit.weeksTitle}>
-              <h2>{STR.credit.weeksTitle}</h2>
-              {weeks && weeks.length > 0 ? (
-                <WeeklyChart weeks={weeks} />
-              ) : (
-                <div className="empty-state">
-                  <p>{STR.credit.noWeeks}</p>
-                </div>
-              )}
-            </section>
-          </>
+              <section className="card" aria-label={STR.credit.weeksTitle}>
+                <h2>{STR.credit.weeksTitle}</h2>
+                {weeks && weeks.length > 0 ? (
+                  <WeeklyChart weeks={weeks} />
+                ) : (
+                  <div className="empty-state">
+                    <p>{STR.credit.noWeeks}</p>
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
         )}
 
       <p className="disclaimer">{summary?.disclaimer ?? DISCLAIMER}</p>
