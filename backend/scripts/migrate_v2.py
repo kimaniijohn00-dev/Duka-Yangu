@@ -66,7 +66,8 @@ def schema_gaps(conn) -> list:
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
     }
-    for table in ("users", "sessions", "login_throttles", "login_attempts"):
+    for table in ("users", "sessions", "login_throttles", "login_attempts",
+                  "invite_codes"):
         if table not in tables:
             gaps.append(f"missing table {table}")
     if "shops" in tables and "is_demo" not in table_columns(conn, "shops"):

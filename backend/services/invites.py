@@ -54,8 +54,13 @@ def hash_code(canonical: str) -> str:
 
 
 def create_invite(conn, label: str, days: int, now: datetime) -> tuple:
-    """Store a new code hash; return (row id, raw code shown exactly once)."""
+    """Store a new code hash; return (row id, raw code shown exactly once).
+
+    Writes an invite_created audit row in the same transaction. The audit
+    detail carries only the row id and label, never the raw code.
+    """
     raw = generate_code()
+    clean_label = (label or "").strip()
     cur = conn.execute(
         """INSERT INTO invite_codes
            (code_hash, label, created_at, expires_at,
@@ -63,10 +68,16 @@ def create_invite(conn, label: str, days: int, now: datetime) -> tuple:
            VALUES (?, ?, ?, ?, NULL, NULL, NULL)""",
         (
             hash_code(normalize_code(raw)),
-            (label or "").strip(),
+            clean_label,
             now.isoformat(),
             (now + timedelta(days=days)).isoformat(),
         ),
+    )
+    conn.execute(
+        "INSERT INTO audit_log (action, entity, entity_id, shop_id, detail, created_at)"
+        " VALUES ('invite_created', 'invite', ?, NULL, ?, ?)",
+        (cur.lastrowid, f"invite {cur.lastrowid} created label={clean_label}",
+         now.isoformat()),
     )
     return cur.lastrowid, raw
 
@@ -106,15 +117,27 @@ def consume_invite(conn, raw_code: str | None, now: datetime, shop_id: int) -> i
         or row["expires_at"] <= now.isoformat()
     ):
         raise InvalidInvite(GENERIC_INVALID_CODE)
-    conn.execute(
-        "UPDATE invite_codes SET used_at = ?, used_by_shop_id = ? WHERE id = ?",
-        (now.isoformat(), shop_id, row["id"]),
+    # Conditional UPDATE: only an unused, unrevoked, unexpired row is
+    # marked. A concurrent registration racing on the same code gets
+    # rowcount 0 and the same generic error, so one code can never be
+    # consumed twice even when two transactions interleave.
+    cur = conn.execute(
+        "UPDATE invite_codes SET used_at = ?, used_by_shop_id = ?"
+        " WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL"
+        " AND expires_at > ?",
+        (now.isoformat(), shop_id, row["id"], now.isoformat()),
     )
+    if cur.rowcount != 1:
+        raise InvalidInvite(GENERIC_INVALID_CODE)
     return row["id"]
 
 
 def revoke_invite(conn, invite_id: int, now: datetime) -> dict:
-    """Revoke an unused code. Used codes have nothing left to revoke."""
+    """Revoke an unused code. Used codes have nothing left to revoke.
+
+    Writes an invite_revoked audit row in the same transaction; the
+    detail carries only the row id, never the raw code.
+    """
     row = conn.execute(
         "SELECT * FROM invite_codes WHERE id = ?", (invite_id,)
     ).fetchone()
@@ -125,5 +148,10 @@ def revoke_invite(conn, invite_id: int, now: datetime) -> dict:
     conn.execute(
         "UPDATE invite_codes SET revoked_at = ? WHERE id = ?",
         (now.isoformat(), invite_id),
+    )
+    conn.execute(
+        "INSERT INTO audit_log (action, entity, entity_id, shop_id, detail, created_at)"
+        " VALUES ('invite_revoked', 'invite', ?, NULL, ?, ?)",
+        (invite_id, f"invite {invite_id} revoked", now.isoformat()),
     )
     return dict(row)

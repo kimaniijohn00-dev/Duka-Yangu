@@ -30,7 +30,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from db import get_connection
 from services.credit import DEMO_SHOP_NAME
-from services.invites import InvalidInvite, consume_invite
+from services.invites import GENERIC_INVALID_CODE, InvalidInvite, consume_invite
 
 SESSION_COOKIE = "duka_session"
 SESSION_DAYS = 30
@@ -51,6 +51,15 @@ ATTEMPT_RETENTION_HOURS = 48
 # Backstops reusing the existing per-IP sliding-window shape.
 REGISTER_IP_MAX_PER_HOUR = 10
 LOGIN_IP_MAX_PER_MINUTE = 20
+
+# Failed single-use invite guesses per IP per hour. Checked before the
+# generic register limiter so a guessing IP gets this specific 429 once
+# it has burned through MAX wrong codes.
+INVITE_GUESS_IP_MAX_PER_HOUR = 10
+INVITE_GUESS_WINDOW_S = 3600
+INVITE_GUESS_LIMIT_MESSAGE = (
+    "Too many wrong invite codes. Try again in an hour."
+)
 
 PIN_MIN_LEN = 6
 PIN_MAX_LEN = 12
@@ -244,6 +253,30 @@ def _check_ip_limit(kind: str, ip: str, now: datetime, limit: int, window_s: int
         )
 
 
+def _invite_guess_hits(ip: str, now: datetime) -> int:
+    """Failed invite guesses from this IP inside the trailing hour."""
+    cutoff = now - timedelta(seconds=INVITE_GUESS_WINDOW_S)
+    slot = ("invite_guess", ip)
+    hits = [hit for hit in _ip_hits.get(slot, []) if hit > cutoff]
+    _ip_hits[slot] = hits
+    return len(hits)
+
+
+def _record_invite_guess(ip: str, now: datetime) -> None:
+    slot = ("invite_guess", ip)
+    _ip_hits[slot] = _ip_hits.get(slot, []) + [now]
+
+
+def _clear_invite_guesses(ip: str) -> None:
+    _ip_hits.pop(("invite_guess", ip), None)
+
+
+def _check_invite_guess_limit(ip: str, now: datetime) -> None:
+    """429 when this IP already burned its hourly wrong-code budget."""
+    if _invite_guess_hits(ip, now) >= INVITE_GUESS_IP_MAX_PER_HOUR:
+        raise HTTPException(status_code=429, detail=INVITE_GUESS_LIMIT_MESSAGE)
+
+
 def _recent_failures(conn, phone: str, now: datetime) -> int:
     row = conn.execute(
         "SELECT COUNT(*) FROM login_attempts"
@@ -412,7 +445,6 @@ def register(phone: str, pin: str, shop_name: str, invite_code: str,
     now = now or _utcnow()
     ip = client_ip(request)
     _check_origin(request)
-    _check_ip_limit("auth_register", ip, now, REGISTER_IP_MAX_PER_HOUR, 3600)
     canonical = normalize_phone(phone)
     if canonical is None:
         raise HTTPException(
@@ -430,37 +462,58 @@ def register(phone: str, pin: str, shop_name: str, invite_code: str,
         raise HTTPException(
             status_code=422, detail="That name is reserved for the demo shop."
         )
-    with get_connection() as conn:
-        existing = conn.execute(
-            "SELECT id FROM users WHERE phone = ?", (canonical,)
-        ).fetchone()
-        if existing is not None:
-            raise HTTPException(
-                status_code=409, detail="That number is already registered. Log in instead."
+    # The wrong-code budget is checked before the generic register
+    # limiter so guessers get this specific 429. Weak PINs, bad phones
+    # and bad names already returned above and never count as guesses.
+    if _invite_guess_hits(ip, now) >= INVITE_GUESS_IP_MAX_PER_HOUR:
+        with get_connection() as conn:
+            _audit(conn, "invite_failed", None, None,
+                   f"phone {mask_phone(canonical)}", now)
+        raise HTTPException(status_code=429, detail=INVITE_GUESS_LIMIT_MESSAGE)
+    _check_ip_limit("auth_register", ip, now, REGISTER_IP_MAX_PER_HOUR, 3600)
+    try:
+        with get_connection() as conn:
+            existing = conn.execute(
+                "SELECT id FROM users WHERE phone = ?", (canonical,)
+            ).fetchone()
+            if existing is not None:
+                raise HTTPException(
+                    status_code=409, detail="That number is already registered. Log in instead."
+                )
+            cur = conn.execute(
+                "INSERT INTO shops (name, location, is_demo, created_at) VALUES (?, NULL, 0, ?)",
+                (cleaned_name, now.isoformat()),
             )
-        cur = conn.execute(
-            "INSERT INTO shops (name, location, is_demo, created_at) VALUES (?, NULL, 0, ?)",
-            (cleaned_name, now.isoformat()),
-        )
-        shop_id = cur.lastrowid
-        cur = conn.execute(
-            "INSERT INTO users (shop_id, phone, pin_hash, created_at) VALUES (?, ?, ?, ?)",
-            (shop_id, canonical, hash_pin(pin), now.isoformat()),
-        )
-        user_id = cur.lastrowid
-        if not _check_env_invite(invite_code):
-            # Single-use code, consumed in this same transaction: any
-            # later failure rolls the mark back, so a failed
-            # registration never burns a code.
-            try:
+            shop_id = cur.lastrowid
+            cur = conn.execute(
+                "INSERT INTO users (shop_id, phone, pin_hash, created_at) VALUES (?, ?, ?, ?)",
+                (shop_id, canonical, hash_pin(pin), now.isoformat()),
+            )
+            user_id = cur.lastrowid
+            if not _check_env_invite(invite_code):
+                # Single-use code, consumed in this same transaction: any
+                # later failure rolls the mark back, so a failed
+                # registration never burns a code.
                 invite_row_id = consume_invite(conn, invite_code, now, shop_id)
-            except InvalidInvite as exc:
-                raise HTTPException(status_code=403, detail=str(exc))
-            _audit(conn, "invite_used", invite_row_id, shop_id,
-                   f"invite {invite_row_id} used", now)
-        _audit(conn, "registered", user_id, shop_id,
-               f"phone {mask_phone(canonical)}", now)
-        cookie_value = _create_session(conn, user_id, shop_id, now)
+                _audit(conn, "invite_used", invite_row_id, shop_id,
+                       f"invite {invite_row_id} used", now)
+            _audit(conn, "registered", user_id, shop_id,
+                   f"phone {mask_phone(canonical)}", now)
+            cookie_value = _create_session(conn, user_id, shop_id, now)
+    except InvalidInvite as exc:
+        # The shop/user inserts roll back with the failed transaction,
+        # so the code is never consumed without a created account. The
+        # failure itself is audited in a fresh transaction so the record
+        # survives the rollback; the raw code is never written anywhere.
+        assert str(exc) == GENERIC_INVALID_CODE
+        _record_invite_guess(ip, now)
+        with get_connection() as conn:
+            _audit(conn, "invite_failed", None, None,
+                   f"phone {mask_phone(canonical)}", now)
+        if _invite_guess_hits(ip, now) > INVITE_GUESS_IP_MAX_PER_HOUR:
+            raise HTTPException(status_code=429, detail=INVITE_GUESS_LIMIT_MESSAGE)
+        raise HTTPException(status_code=403, detail=str(exc))
+    _clear_invite_guesses(ip)
     _set_session_cookie(response, cookie_value)
     return {"user_id": user_id, "shop_id": shop_id, "shop_name": cleaned_name}
 

@@ -3,6 +3,10 @@
 Status: demo reads are served by the `shops.is_demo` flag (set by the
 seeder and the migration); pre-v2 `NULL`-shop data is unreachable until
 `scripts/migrate_v2.py --apply` moves it to the unclaimed shop.
+Registration consumes a single-use invite code atomically (one code, one
+shop; used/expired/revoked/unknown all return the same generic 403),
+with a per-IP limit on failed guesses and `audit_log` entries for
+invite created/used/revoked/failed (raw codes never stored or logged).
 
 Every endpoint, its auth rule, and how its shop is resolved. The shop id
 always comes from the logged-in session; no endpoint accepts a

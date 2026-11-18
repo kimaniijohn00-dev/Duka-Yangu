@@ -2,11 +2,14 @@
 
 Covers: create, use-once, reuse/expired/revoked/wrong all fail with the
 same generic error, the raw code never lands in the database or logs, a
-failed registration never consumes a code, and the DUKA_INVITE_CODE env
-fallback still works when set.
+failed registration never consumes a code, concurrent use of one code
+succeeds only once, per-IP failed-guess limiting, the invite audit trail
+(created/used/revoked/failed, never holding the raw code), and the
+DUKA_INVITE_CODE env fallback still works when set.
 """
 import re
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -259,3 +262,89 @@ def test_invite_table_created_by_init_db(tmp_path, monkeypatch):
             .fetchall()
         }
     assert "invite_codes" in tables
+
+
+def test_concurrent_use_succeeds_only_once(invite_db, monkeypatch):
+    """Five simultaneous registrations on one code: exactly one wins."""
+    raw = fresh_code(monkeypatch)
+    outcomes = []
+    lock = threading.Lock()
+
+    def attempt(suffix):
+        phone = f"07400000{suffix:02d}"
+        try:
+            do_register(monkeypatch, phone, raw, ip=f"10.40.0.{suffix}")
+            result = "ok"
+        except HTTPException as exc:
+            result = exc.status_code
+        except Exception:  # pragma: no cover - surfacing a real problem
+            result = "error"
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=attempt, args=(n,)) for n in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+
+    assert outcomes.count("ok") == 1
+    assert outcomes.count(403) == 4
+    assert len(outcomes) == 5
+    with db.get_connection() as conn:
+        rows = conn.execute("SELECT used_at, used_by_shop_id FROM invite_codes").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["used_at"] is not None
+        assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 1
+
+
+def test_failed_guesses_per_ip_limited(invite_db, monkeypatch):
+    """Wrong codes from one IP get 403s, then a 429; other IPs unaffected."""
+    for n in range(authmod.INVITE_GUESS_IP_MAX_PER_HOUR):
+        with pytest.raises(HTTPException) as exc_info:
+            do_register(monkeypatch, f"07500000{n:02d}", "WRONG-CODE",
+                        ip="10.50.0.1")
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail == GENERIC
+
+    with pytest.raises(HTTPException) as exc_info:
+        do_register(monkeypatch, "0750000099", "WRONG-CODE", ip="10.50.0.1")
+    assert exc_info.value.status_code == 429
+
+    # A different IP still gets the generic 403, not the block.
+    with pytest.raises(HTTPException) as exc_info:
+        do_register(monkeypatch, "0750000098", "WRONG-CODE", ip="10.50.0.2")
+    assert exc_info.value.status_code == 403
+
+    with db.get_connection() as conn:
+        failed = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'invite_failed'"
+        ).fetchall()
+    assert len(failed) >= authmod.INVITE_GUESS_IP_MAX_PER_HOUR
+    assert all("WRONG" not in row["detail"] for row in failed)
+
+
+def test_invite_audit_trail_never_holds_raw_code(invite_db, monkeypatch):
+    """created/used/revoked/failed rows exist; none contains the raw code."""
+    raw = fresh_code(monkeypatch, label="Audit Mama")
+    do_register(monkeypatch, PHONE, raw)
+    with db.get_connection() as conn:
+        row_id, rev_raw = create_invite(
+            conn, "Audit Rev", 14, datetime.now(timezone.utc))
+        revoke_invite(conn, row_id, datetime.now(timezone.utc))
+    with pytest.raises(HTTPException):
+        do_register(monkeypatch, "0766666666", "NOPE-NOPE-NOPE",
+                    ip="10.60.0.1")
+
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT action, detail FROM audit_log WHERE action LIKE 'invite_%'"
+        ).fetchall()
+    actions = {row["action"] for row in rows}
+    assert {"invite_created", "invite_used", "invite_revoked",
+            "invite_failed"} <= actions
+    for row in rows:
+        for secret in (raw, rev_raw):
+            assert secret not in row["detail"]
+            assert secret.replace("-", "") not in row["detail"]
+        assert "code_hash" not in row["detail"]

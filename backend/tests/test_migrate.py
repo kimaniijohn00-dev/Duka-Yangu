@@ -249,7 +249,7 @@ def test_apply_migrates_and_verifies(v1_db):
             "SELECT shop_id FROM audit_log WHERE action = 'confirm'"
         ).fetchone()[0]
         assert inferred == unclaimed["id"]
-        assert "users" in {
+        assert {"users", "invite_codes"} <= {
             r[0]
             for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"

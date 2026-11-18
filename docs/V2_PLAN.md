@@ -5,7 +5,11 @@ the v2 migration script (step 8), and single-use invite codes
 implemented. Anonymous demo reads are served by shops.is_demo; NULL-shop
 data migrates via scripts/migrate_v2.py; registration consumes one row
 of invite_codes (scripts/make_invite.py, scripts/list_invites.py) with
-DUKA_INVITE_CODE kept as an optional fallback. Nothing deployed to
+DUKA_INVITE_CODE kept as an optional fallback. Invite consumption is
+atomic in the registration transaction (concurrent use wins once),
+failed guesses are per-IP limited with audit rows for invite
+created/used/revoked/failed (raw codes never stored or logged), and the
+migration check covers invite_codes. Nothing deployed to
 Modal, nothing committed.
 
 Working assumption: this plan targets the `v2` branch. Git could not be

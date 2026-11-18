@@ -95,7 +95,10 @@ CREATE TABLE explain_cache (
 );
 """
 
-V2_TABLES = {"users", "sessions", "login_throttles", "login_attempts"}
+# invite_codes holds single-use registration codes (hash only); the raw
+# code is never stored. Added with the invite-code change alongside auth.
+V2_TABLES = {"users", "sessions", "login_throttles", "login_attempts",
+             "invite_codes"}
 
 
 @pytest.fixture
@@ -179,6 +182,10 @@ def test_fresh_db_has_v2_schema(tmp_db):
     assert "phone" in columns("users")
     assert "token_hash" in columns("sessions")
     assert "attempted_at" in columns("login_attempts")
+    assert columns("invite_codes") == [
+        "id", "code_hash", "label", "created_at", "expires_at",
+        "used_at", "used_by_shop_id", "revoked_at",
+    ]
 
     with db.get_connection() as conn:
         indexes = {
