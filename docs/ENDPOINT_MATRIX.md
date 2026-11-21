@@ -43,6 +43,16 @@ Notes:
   that row they return 404. Anonymous visitors can never write anything.
 - State-changing requests (all POSTs) verify the `Origin` header matches
   our own origin or the `DUKA_ALLOWED_ORIGINS` list.
+- Origin enforcement order inside every POST handler is session first,
+  then Origin, then everything else: guards, AI quota charges, AI calls
+  and database writes. A missing `Origin` with no same-site `Referer`
+  is rejected with 403 before any side effect, so a rejected probe moves
+  no AI counter. `backend/scripts/smoke_http.ps1` section 9 asserts the
+  403s and the unchanged counters over live HTTP, and repeats the probes
+  through a headerless `HttpClient` to rule out client-added headers.
+  Every POST below also has missing-Origin, foreign-Origin and
+  correct-Origin coverage in `backend/tests/test_origin.py`, asserting
+  the 403s and that rejected requests move no usage counter or row.
 - `audit_log` rows written by scoped endpoints carry the session
   `shop_id`; the public lender-view audit row keeps `shop_id` NULL.
 - Explain and transcribe calls consume both the global daily cap
